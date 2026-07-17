@@ -1179,6 +1179,33 @@ describe("AgentActivityCluster", () => {
     expect(screen.getByText(/Authorization.*<redacted>/)).toBeVisible();
   });
 
+  it("redacts credentials from generic tool URL details", () => {
+    const line = 'download_asset({"url":"https://user:password@example.com/file?access_token=signed-secret&format=png"})';
+    render(
+      <AgentActivityCluster
+        messages={[{
+          id: "t-generic-url-secret",
+          role: "tool",
+          kind: "trace",
+          content: line,
+          traces: [line],
+          createdAt: 1,
+        }]}
+        isTurnStreaming={false}
+        hasBodyBelow={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText("Technical details for Ran Download Asset"));
+    expect(screen.queryByText(/password|signed-secret/)).not.toBeInTheDocument();
+    const url = screen.getByText(/<redacted>@example\.com\/file\?access_token=<redacted>&format=png/);
+    expect(url).toBeVisible();
+    expect(url).toHaveAttribute(
+      "title",
+      "https://<redacted>@example.com/file?access_token=<redacted>&format=png",
+    );
+  });
+
   it("summarizes long shell traces instead of dumping scripts", () => {
     const command = [
       "cat << 'EOF' | bash",

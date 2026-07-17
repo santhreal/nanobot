@@ -123,20 +123,25 @@ export function GenericToolRun({ items }: { items: GenericToolRunItem[] }) {
 }
 
 function ToolDetailField({ field }: { field: { label: string; values: string[]; paths: boolean } }) {
+  const displayValue = (value: string) => {
+    const redacted = redactSensitiveText(value);
+    return field.paths ? compactGenericToolPath(redacted) : redacted;
+  };
+
   return (
     <>
       <dt>{field.label}</dt>
       <dd className="min-w-0">
         {field.values.length === 1 ? (
-          <code className="break-words font-mono text-foreground/68" title={field.paths ? field.values[0] : undefined}>
-            {field.paths ? compactGenericToolPath(field.values[0]) : field.values[0]}
+          <code className="break-words font-mono text-foreground/68" title={field.paths ? displayValue(field.values[0]) : undefined}>
+            {displayValue(field.values[0])}
           </code>
         ) : (
           <ul className="space-y-0.5">
             {field.values.map((value, index) => (
               <li key={`${value}:${index}`}>
-                <code className="break-words font-mono text-foreground/68" title={field.paths ? value : undefined}>
-                  {field.paths ? compactGenericToolPath(value) : value}
+                <code className="break-words font-mono text-foreground/68" title={field.paths ? displayValue(value) : undefined}>
+                  {displayValue(value)}
                 </code>
               </li>
             ))}
@@ -247,18 +252,20 @@ function uniqueToolNames(items: GenericToolRunItem[]): string[] {
 function safeError(items: GenericToolRunItem[]): string | undefined {
   const error = items.find((item) => item.error)?.error;
   if (!error) return undefined;
-  return truncateMiddle(
-    error
-      .replace(
-        /(["']?authorization["']?\s*[:=]\s*["']?)[^"'\r\n,;}]+/gi,
-        "$1<redacted>",
-      )
-      .replace(
-        /(["']?(?:api[_-]?key|token|secret|password)["']?\s*[:=]\s*)["']?[^"'\s,;}]+["']?/gi,
-        "$1<redacted>",
-      ),
-    320,
-  );
+  return truncateMiddle(redactSensitiveText(error), 320);
+}
+
+function redactSensitiveText(value: string): string {
+  return value
+    .replace(/(https?:\/\/)[^/@\s]+@/gi, "$1<redacted>@")
+    .replace(
+      /(["']?authorization["']?\s*[:=]\s*["']?)[^"'\r\n,;}]+/gi,
+      "$1<redacted>",
+    )
+    .replace(
+      /(["']?(?:api[_-]?key|access[_-]?token|token|secret|password)["']?\s*[:=]\s*)["']?[^"'\s,&;}]+["']?/gi,
+      "$1<redacted>",
+    );
 }
 
 function uniqueEvidence(evidence: ActivityEvidence[]): ActivityEvidence[] {
