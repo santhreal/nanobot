@@ -480,6 +480,8 @@ export interface SettingsPayload {
       api_key_hint?: string | null;
       api_base?: string | null;
       default_api_base?: string | null;
+      models?: string[];
+      default_model?: string | null;
     }>;
   };
   transcription?: {
