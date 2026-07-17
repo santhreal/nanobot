@@ -268,14 +268,6 @@ async def test_preflight_consolidation_before_llm_call(tmp_path, monkeypatch) ->
         call_count[0] += 1
         return (1000 if call_count[0] <= 1 else 80, "test")
     loop.consolidator.estimate_session_prompt_tokens = mock_estimate  # type: ignore[method-assign]
-    monkeypatch.setattr(
-        "nanobot.agent.runner.estimate_prompt_tokens_chain",
-        lambda *_args, **_kwargs: (80, "test"),
-    )
-    monkeypatch.setattr(
-        "nanobot.agent.context_governance.estimate_prompt_tokens_chain",
-        lambda *_args, **_kwargs: (80, "test"),
-    )
 
     await loop.process_direct("hello", session_key="cli:test")
 

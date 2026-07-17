@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any
 
 from nanobot.agent.tools.base import Tool, ToolResult
 from nanobot.agent.tools.context import ContextAware, current_request_context
-from nanobot.utils.runtime import with_tool_error_recovery_hint
 
 if TYPE_CHECKING:
     from nanobot.runtime_context import RuntimeContextProvider
@@ -186,20 +185,19 @@ class ToolRegistry:
 
     async def execute(self, name: str, params: Any) -> Any:
         """Execute a tool by name with given parameters."""
+        hint = "\n\n[Analyze the error above and try a different approach.]"
         tool, params, error = self.prepare_call(name, params)
         if error:
-            return ToolResult.error(with_tool_error_recovery_hint(str(error)))
+            return ToolResult.error(str(error) + hint)
 
         try:
             assert tool is not None  # guarded by prepare_call()
             result = await tool.execute(**params)
             if is_tool_error_result(name, result):
-                return ToolResult.error(with_tool_error_recovery_hint(str(result)))
+                return ToolResult.error(str(result) + hint)
             return result
         except Exception as e:
-            return ToolResult.error(
-                with_tool_error_recovery_hint(f"Error executing {name}: {str(e)}")
-            )
+            return ToolResult.error(f"Error executing {name}: {str(e)}" + hint)
 
     @property
     def tool_names(self) -> list[str]:

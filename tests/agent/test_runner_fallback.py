@@ -461,28 +461,14 @@ class TestNoFallbackOnNonRetryableError:
         factory.assert_not_called()
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        "response",
-        [
-            _make_response(
-                "request rejected",
-                finish_reason="error",
-                error_status_code=500,
-                error_code="input_too_long",
-                error_should_retry=True,
-            ),
-            _make_response(
-                "request rejected",
-                finish_reason="error",
-                error_status_code=413,
-                error_kind=ERROR_KIND_CONTEXT_OVERFLOW,
-                error_should_retry=True,
-            ),
-        ],
-    )
-    async def test_context_overflow_bypasses_fallback_and_circuit_breaker(
-        self, response: LLMResponse
-    ) -> None:
+    async def test_context_overflow_bypasses_fallback_and_circuit_breaker(self) -> None:
+        response = _make_response(
+            "request rejected",
+            finish_reason="error",
+            error_status_code=413,
+            error_kind=ERROR_KIND_CONTEXT_OVERFLOW,
+            error_should_retry=True,
+        )
         primary = _FakeProvider("primary", response)
         factory = MagicMock(return_value=_FakeProvider("fallback", _make_response("fallback ok")))
         fb = FallbackProvider(
@@ -562,27 +548,13 @@ class TestFallbackTriesModelsInOrder:
         factory.assert_any_call(_fallback("fallback-b"))
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        "overflow_response",
-        [
-            _make_response(
-                "context too large",
-                finish_reason="error",
-                error_kind=ERROR_KIND_CONTEXT_OVERFLOW,
-                error_status_code=413,
-            ),
-            _make_response(
-                "request rejected",
-                finish_reason="error",
-                error_code="input_too_long",
-                error_status_code=500,
-            ),
-        ],
-    )
-    async def test_context_overflow_from_fallback_stops_chain(
-        self,
-        overflow_response: LLMResponse,
-    ) -> None:
+    async def test_context_overflow_from_fallback_stops_chain(self) -> None:
+        overflow_response = _make_response(
+            "context too large",
+            finish_reason="error",
+            error_kind=ERROR_KIND_CONTEXT_OVERFLOW,
+            error_status_code=413,
+        )
         primary = _FakeProvider("primary", _error_response("primary fail"))
         fallback_a = _FakeProvider("a", overflow_response)
         fallback_b = _FakeProvider("b", _make_response("b ok"))

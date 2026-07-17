@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock
 from nanobot.agent.tools.base import Tool, ToolResult
 from nanobot.agent.tools.filesystem import ReadFileTool
 from nanobot.agent.tools.registry import ToolRegistry
-from nanobot.utils.runtime import TOOL_ERROR_RECOVERY_HINT
 
 
 class _FakeTool(Tool):
@@ -291,8 +290,7 @@ async def test_registry_uses_structured_tool_result_for_errors() -> None:
     assert isinstance(error_result, ToolResult)
     assert error_result.is_error
     assert error_result.startswith("Error: real failure")
-    assert error_result.endswith(TOOL_ERROR_RECOVERY_HINT)
-    assert error_result.count(TOOL_ERROR_RECOVERY_HINT) == 1
+    assert "[Analyze the error above" in error_result
 
 
 def test_get_definitions_returns_cached_result() -> None:

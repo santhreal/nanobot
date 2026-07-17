@@ -603,16 +603,16 @@ def test_microcompact_compacts_newest_when_it_alone_overflows(monkeypatch):
 
     monkeypatch.setattr("nanobot.agent.context_governance.estimate_prompt_tokens_chain", estimate)
 
-    compacted_tool_result_indexes: set[int] = set()
+    compacted_tool_call_ids: set[str] = set()
     result = ContextGovernor().compact_inflight_overflow(
         _governance_config(provider, tools, spec),
         messages,
-        compacted_tool_result_indexes,
+        compacted_tool_call_ids,
     )
 
     tool_msg = next(m for m in result if m.get("role") == "tool")
     assert "compacted to fit context" in tool_msg["content"]
-    assert compacted_tool_result_indexes == {2}
+    assert compacted_tool_call_ids == {"c0"}
 
 
 def test_context_governor_keeps_compaction_boundary_stable(monkeypatch):
@@ -644,14 +644,14 @@ def test_context_governor_keeps_compaction_boundary_stable(monkeypatch):
     monkeypatch.setattr("nanobot.agent.context_governance.estimate_prompt_tokens_chain", estimate)
 
     governor = ContextGovernor()
-    compacted_tool_result_indexes: set[int] = set()
+    compacted_tool_call_ids: set[str] = set()
     config = _governance_config(provider, tools, spec, inflight_start_index=0)
-    first = governor.compact_inflight_overflow(config, messages, compacted_tool_result_indexes)
-    first_indexes = set(compacted_tool_result_indexes)
+    first = governor.compact_inflight_overflow(config, messages, compacted_tool_call_ids)
+    first_ids = set(compacted_tool_call_ids)
 
-    second = governor.compact_inflight_overflow(config, messages, compacted_tool_result_indexes)
+    second = governor.compact_inflight_overflow(config, messages, compacted_tool_call_ids)
 
-    assert compacted_tool_result_indexes == first_indexes
+    assert compacted_tool_call_ids == first_ids
     assert [m.get("content") for m in second] == [m.get("content") for m in first]
 
 
@@ -881,126 +881,9 @@ def test_snip_history_no_user_at_all_falls_back_gracefully(monkeypatch):
         )
 
 
-def test_provider_overflow_recovery_replaces_largest_result_without_tokenizer(monkeypatch):
-    provider = MagicMock()
-    tools = MagicMock()
-    spec = make_run_spec(
-        provider,
-        initial_messages=[],
-        tools=tools,
-        model="test-model",
-        max_iterations=1,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-    )
-    messages = [
-        {"role": "tool", "tool_call_id": "small", "name": "read_file", "content": "s" * 500},
-        {"role": "tool", "tool_call_id": "large", "name": "read_file", "content": "l" * 1000},
-    ]
-    prepared_messages = [dict(message) for message in messages]
-
-    def fail_if_tokenized(*_args, **_kwargs):
-        raise AssertionError("overflow recovery must not tokenize tool results")
-
-    monkeypatch.setattr(
-        "nanobot.agent.context_governance.estimate_message_tokens",
-        fail_if_tokenized,
-    )
-
-    compacted_tool_result_indexes: set[int] = set()
-    recovered = ContextGovernor().recover_provider_overflow(
-        _governance_config(provider, tools, spec),
-        messages,
-        prepared_messages,
-        compacted_tool_result_indexes,
-    )
-
-    assert recovered is not None
-    assert compacted_tool_result_indexes == {1}
-    assert recovered.model_messages[0]["content"] == "s" * 500
-    assert "too large to fit" in recovered.model_messages[1]["content"]
-    assert "too large to fit" in recovered.canonical_messages[1]["content"]
-    assert messages[1]["content"] == "l" * 1000
-
-
-def test_provider_overflow_recovery_distinguishes_duplicate_tool_call_ids():
-    provider = MagicMock()
-    tools = MagicMock()
-    tools.get_definitions.return_value = []
-    spec = make_run_spec(
-        provider,
-        initial_messages=[],
-        tools=tools,
-        model="test-model",
-        max_iterations=1,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-    )
-    historical_result = "h" * 2000
-    current_result = "c" * 1000
-    messages = [
-        {"role": "user", "content": "old request"},
-        {
-            "role": "assistant",
-            "content": "",
-            "tool_calls": [{
-                "id": "duplicate",
-                "type": "function",
-                "function": {"name": "read_file", "arguments": "{}"},
-            }],
-        },
-        {
-            "role": "tool",
-            "tool_call_id": "duplicate",
-            "name": "read_file",
-            "content": historical_result,
-        },
-        {"role": "user", "content": "current request"},
-        {
-            "role": "assistant",
-            "content": "",
-            "tool_calls": [{
-                "id": "duplicate",
-                "type": "function",
-                "function": {"name": "read_file", "arguments": "{}"},
-            }],
-        },
-        {
-            "role": "tool",
-            "tool_call_id": "duplicate",
-            "name": "read_file",
-            "content": current_result,
-        },
-    ]
-    prepared_messages = [dict(message) for message in messages]
-    config = _governance_config(provider, tools, spec, inflight_start_index=4)
-    compacted_tool_result_indexes: set[int] = set()
-    governor = ContextGovernor()
-
-    recovered = governor.recover_provider_overflow(
-        config,
-        messages,
-        prepared_messages,
-        compacted_tool_result_indexes,
-    )
-
-    assert recovered is not None
-    assert compacted_tool_result_indexes == {5}
-    assert recovered.model_messages[2]["content"] == historical_result
-    assert recovered.canonical_messages[2]["content"] == historical_result
-    assert "too large to fit" in recovered.model_messages[5]["content"]
-    assert "too large to fit" in recovered.canonical_messages[5]["content"]
-
-    followup_messages = governor.prepare_for_model(
-        config,
-        recovered.canonical_messages,
-        compacted_tool_result_indexes,
-    )
-    assert followup_messages[2]["content"] == historical_result
-    assert "compacted to fit context" in followup_messages[5]["content"]
-
-
 @pytest.mark.asyncio
-async def test_runner_retries_provider_context_overflow_once_with_tool_hint():
-    """Provider truth recovers estimator misses without replaying the oversized result."""
+async def test_runner_reports_provider_context_overflow_after_tool_result():
+    """Provider truth stops the turn even when local token estimation misses."""
     from nanobot.agent.runner import AgentRunner
 
     provider = MagicMock()
@@ -1019,7 +902,6 @@ async def test_runner_retries_provider_context_overflow_once_with_tool_hint():
             error_code="context_length_exceeded",
             error_kind=ERROR_KIND_CONTEXT_OVERFLOW,
         ),
-        LLMResponse(content="recovered", finish_reason="stop"),
     ])
     tools = MagicMock()
     tools.get_definitions.return_value = [
@@ -1039,225 +921,14 @@ async def test_runner_retries_provider_context_overflow_once_with_tool_hint():
         max_tokens=900,
     ))
 
-    assert provider.chat_with_retry.await_count == 3
-    request = provider.chat_with_retry.await_args_list[2].kwargs
-    assert request["tools"] == tools.get_definitions.return_value
-    hinted_result = next(
-        message["content"]
-        for message in request["messages"]
-        if message.get("tool_call_id") == "read_1"
-    )
-    assert "too large to fit" in hinted_result
-    assert oversized_result not in hinted_result
-    assert result.stop_reason == "completed"
-    assert result.final_content == "recovered"
-
-
-@pytest.mark.asyncio
-async def test_runner_keeps_provider_overflow_hint_across_runs():
-    """A provider-confirmed result replacement must survive the next user turn."""
-    from nanobot.agent.runner import AgentRunner
-
-    overflow = LLMResponse(
-        content="request rejected",
-        finish_reason="error",
-        error_kind=ERROR_KIND_CONTEXT_OVERFLOW,
-    )
-    first_provider = MagicMock()
-    first_provider.chat_with_retry = AsyncMock(side_effect=[
-        LLMResponse(
-            content="working",
-            tool_calls=[
-                ToolCallRequest(id="read_1", name="read_file", arguments={"path": "x"})
-            ],
-            finish_reason="tool_calls",
-        ),
-        overflow,
-        LLMResponse(content="recovered", finish_reason="stop"),
-    ])
-    tools = MagicMock()
-    tools.get_definitions.return_value = [
-        {"type": "function", "function": {"name": "read_file"}}
-    ]
-    oversized_result = "provider-counted result " * 100
-    tools.execute = AsyncMock(return_value=oversized_result)
-
-    first_result = await AgentRunner().run(make_run_spec(
-        first_provider,
-        initial_messages=[{"role": "user", "content": "read it"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=2,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        context_window_tokens=1000,
-        max_tokens=900,
-    ))
-
-    persisted_result = next(
-        message["content"]
-        for message in first_result.messages
-        if message.get("tool_call_id") == "read_1"
-    )
-    assert "too large to fit" in persisted_result
-    assert oversized_result not in persisted_result
-
-    second_provider = MagicMock()
-    second_provider.chat_with_retry = AsyncMock(
-        return_value=LLMResponse(content="next turn completed", finish_reason="stop")
-    )
-    second_result = await AgentRunner().run(make_run_spec(
-        second_provider,
-        initial_messages=[
-            *first_result.messages,
-            {"role": "user", "content": "what next?"},
-        ],
-        tools=tools,
-        model="test-model",
-        max_iterations=1,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        context_window_tokens=1000,
-        max_tokens=900,
-    ))
-
-    replayed_messages = second_provider.chat_with_retry.await_args.kwargs["messages"]
-    assert not any(
-        oversized_result in str(message.get("content") or "")
-        for message in replayed_messages
-    )
-    assert second_result.stop_reason == "completed"
-    assert second_result.final_content == "next turn completed"
-
-
-@pytest.mark.asyncio
-async def test_runner_keeps_provider_overflow_compaction_for_followup_tool_call():
-    """A narrower follow-up must not replay the result that already overflowed."""
-    from nanobot.agent.runner import AgentRunner
-
-    provider = MagicMock()
-    provider.chat_with_retry = AsyncMock(side_effect=[
-        LLMResponse(
-            content="working",
-            tool_calls=[
-                ToolCallRequest(id="read_1", name="read_file", arguments={"path": "x"})
-            ],
-            finish_reason="tool_calls",
-        ),
-        LLMResponse(
-            content="request rejected",
-            finish_reason="error",
-            error_kind=ERROR_KIND_CONTEXT_OVERFLOW,
-        ),
-        LLMResponse(
-            content="trying a smaller range",
-            tool_calls=[
-                ToolCallRequest(
-                    id="read_2",
-                    name="read_file",
-                    arguments={"path": "x", "offset": 1, "limit": 10},
-                )
-            ],
-            finish_reason="tool_calls",
-        ),
-        LLMResponse(content="done", finish_reason="stop"),
-    ])
-    tools = MagicMock()
-    tools.get_definitions.return_value = [
-        {"type": "function", "function": {"name": "read_file"}}
-    ]
-    oversized_result = "provider-counted result " * 100
-    tools.execute = AsyncMock(side_effect=[oversized_result, "small result"])
-
-    result = await AgentRunner().run(make_run_spec(
-        provider,
-        initial_messages=[{"role": "user", "content": "read it"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=3,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        context_window_tokens=1000,
-        max_tokens=900,
-    ))
-
-    assert provider.chat_with_retry.await_count == 4
-    final_request = provider.chat_with_retry.await_args_list[3].kwargs["messages"]
-    prior_result = next(
-        message["content"]
-        for message in final_request
-        if message.get("tool_call_id") == "read_1"
-    )
-    assert "compacted to fit context" in prior_result
-    assert oversized_result not in prior_result
-    assert result.final_content == "done"
-
-
-@pytest.mark.asyncio
-async def test_runner_has_no_second_hard_budget_preflight(monkeypatch):
-    """No additional hard-budget preflight blocks a request after context preparation."""
-    from nanobot.agent.runner import AgentRunner
-
-    provider = MagicMock()
-    provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
-        content="done",
-        finish_reason="stop",
-        usage={"prompt_tokens": 1000, "completion_tokens": 10},
-    ))
-    tools = MagicMock()
-    tools.get_definitions.return_value = []
-    def estimate(*_args, **_kwargs):
-        return 1000, "test"
-
-    monkeypatch.setattr(
-        "nanobot.agent.context_governance.estimate_prompt_tokens_chain",
-        estimate,
-    )
-
-    result = await AgentRunner().run(make_run_spec(
-        provider,
-        initial_messages=[{"role": "user", "content": "hello"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=1,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        context_window_tokens=2000,
-        max_tokens=800,
-    ))
-
-    provider.chat_with_retry.assert_awaited_once()
-    request = provider.chat_with_retry.await_args.kwargs
-    assert request["tools"] == []
-    assert request["max_tokens"] == 800
-    assert result.stop_reason == "completed"
-    assert result.final_content == "done"
-
-
-@pytest.mark.asyncio
-async def test_runner_uses_fallback_when_provider_overflow_has_no_tool_result():
-    """A confirmed overflow without a current-turn tool result cannot recover."""
-    from nanobot.agent.runner import AgentRunner
-
-    provider = MagicMock()
-    provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
-        content="request rejected",
-        finish_reason="error",
-        error_kind=ERROR_KIND_CONTEXT_OVERFLOW,
-    ))
-    tools = MagicMock()
-    tools.get_definitions.return_value = []
-
-    result = await AgentRunner().run(make_run_spec(
-        provider,
-        initial_messages=[{"role": "user", "content": "hello"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=1,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        context_window_tokens=80,
-        max_tokens=80,
-    ))
-
-    provider.chat_with_retry.assert_awaited_once()
+    assert provider.chat_with_retry.await_count == 2
     assert result.stop_reason == "context_overflow"
     assert result.final_content == CONTEXT_OVERFLOW_FALLBACK_MESSAGE
+    assert next(
+        message["content"]
+        for message in result.messages
+        if message.get("tool_call_id") == "read_1"
+    ) == oversized_result
 
 
 # ---------------------------------------------------------------------------

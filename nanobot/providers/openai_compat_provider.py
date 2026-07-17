@@ -53,24 +53,8 @@ _ALLOWED_MSG_KEYS = frozenset({
 })
 _ALNUM = string.ascii_letters + string.digits
 
-_LOCAL_CONTEXT_OVERFLOW_STATUS_CODES = frozenset({400, 413, 422, 500, 503})
-_LOCAL_CONTEXT_OVERFLOW_ERROR_PHRASES = (
-    # vLLM
-    "maximum context length is",
-    # Ollama
-    "input length exceeds the context length",
-    "prompt is longer than the context length currently available",
-    # llama.cpp / Atomic Chat
-    "exceeds the available context size",
-    "context size exceeded",
-    "context window overflow",
-    # LM Studio
-    "trying to keep the first",
-    "context size has been exceeded",
-    # OpenVINO Model Server
-    "input length exceeds pipeline capabilities",
-    "input length exceeds the maximum allowed length",
-)
+_CONTEXT_OVERFLOW_STATUS_CODES = frozenset({400, 413, 422})
+_CONTEXT_OVERFLOW_ERROR_PHRASE = "maximum context length is"
 
 _STANDARD_TC_KEYS = frozenset({"id", "type", "index", "function"})
 _STANDARD_FN_KEYS = frozenset({"name", "arguments"})
@@ -1526,14 +1510,11 @@ class OpenAICompatProvider(LLMProvider):
         metadata = OpenAICompatProvider._extract_error_metadata(e)
         status = metadata.get("error_status_code")
         if (
-            _is_local_endpoint(spec, api_base)
-            and status in _LOCAL_CONTEXT_OVERFLOW_STATUS_CODES
-            and any(phrase in text for phrase in _LOCAL_CONTEXT_OVERFLOW_ERROR_PHRASES)
+            status in _CONTEXT_OVERFLOW_STATUS_CODES
+            and _CONTEXT_OVERFLOW_ERROR_PHRASE in text
         ):
-            # Local OpenAI-compatible servers do not consistently expose a
-            # semantic error code. Keep their exact, known messages scoped to
-            # this adapter instead of teaching the provider base to guess from
-            # arbitrary error response text.
+            # Some OpenAI-compatible endpoints report only a numeric code, as
+            # in #2343. The provider message is the remaining stable signal.
             metadata["error_kind"] = ERROR_KIND_CONTEXT_OVERFLOW
         return LLMResponse(
             content=msg,

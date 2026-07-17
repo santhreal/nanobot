@@ -49,15 +49,6 @@ SUSTAINED_GOAL_CONTINUE_PROMPT = (
     "if the work is truly finished."
 )
 
-TOOL_ERROR_RECOVERY_HINT = "\n\n[Analyze the error above and try a different approach.]"
-
-
-def with_tool_error_recovery_hint(content: str) -> str:
-    """Append the model-facing recovery hint to a tool error exactly once."""
-    if content.endswith(TOOL_ERROR_RECOVERY_HINT):
-        return content
-    return content + TOOL_ERROR_RECOVERY_HINT
-
 
 def empty_tool_result_message(tool_name: str) -> str:
     """Short prompt-safe marker for tools that completed without visible output."""

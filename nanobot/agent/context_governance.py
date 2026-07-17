@@ -20,7 +20,7 @@ from nanobot.utils.helpers import (
     maybe_persist_tool_result,
     truncate_text,
 )
-from nanobot.utils.runtime import ensure_nonempty_tool_result, with_tool_error_recovery_hint
+from nanobot.utils.runtime import ensure_nonempty_tool_result
 
 if TYPE_CHECKING:
     from nanobot.providers.base import LLMProvider
@@ -39,11 +39,6 @@ BACKFILL_CONTENT = "[Tool result unavailable — call was interrupted or lost]"
 PLACEHOLDER_TEXTS = frozenset({
     "[Previous assistant message omitted.]",
 })
-CONTEXT_OVERFLOW_TOOL_RESULT_ERROR = (
-    "Error: The result from `{tool_name}` was too large to fit in the available model "
-    "context, so its content was omitted. Do not repeat the same call unchanged. Try a "
-    "narrower query, request fewer results, read a smaller range, or use another approach."
-)
 
 
 def _tool_call_name_is_valid(tool_call: Any) -> bool:
@@ -74,14 +69,6 @@ class ContextGovernanceConfig:
     inflight_start_index: int = 0
 
 
-@dataclass(slots=True)
-class ContextOverflowRecovery:
-    """Model and canonical message copies after a confirmed provider overflow."""
-
-    model_messages: list[dict[str, Any]]
-    canonical_messages: list[dict[str, Any]]
-
-
 class ContextGovernor:
     """Prepare model-copy messages while preserving persisted history."""
 
@@ -89,19 +76,14 @@ class ContextGovernor:
         self,
         config: ContextGovernanceConfig,
         messages: list[dict[str, Any]],
-        compacted_tool_result_indexes: set[int],
+        compacted_tool_call_ids: set[str],
     ) -> list[dict[str, Any]]:
         updated = self.strip_placeholder_assistant_messages(messages)
         updated = self.strip_malformed_tool_calls(updated)
         updated = self.drop_orphan_tool_results(updated)
         updated = self.backfill_missing_tool_results(updated)
         updated = self.apply_tool_result_budget(config, updated)
-        updated = self.compact_inflight_overflow(
-            config,
-            updated,
-            compacted_tool_result_indexes,
-            canonical_messages=messages,
-        )
+        updated = self.compact_inflight_overflow(config, updated, compacted_tool_call_ids)
         updated = self.snip_history(config, updated)
         updated = self.drop_orphan_tool_results(updated)
         return self.backfill_missing_tool_results(updated)
@@ -338,23 +320,15 @@ class ContextGovernor:
         self,
         config: ContextGovernanceConfig,
         messages: list[dict[str, Any]],
-        compacted_tool_result_indexes: set[int],
-        *,
-        canonical_messages: list[dict[str, Any]] | None = None,
+        compacted_tool_call_ids: set[str],
     ) -> list[dict[str, Any]]:
         """Compact in-flight tool results only when the request would overflow."""
-        if canonical_messages is None:
-            canonical_messages = messages
-        updated = self._apply_recorded_compactions(
-            canonical_messages,
-            messages,
-            compacted_tool_result_indexes,
-        )
         budget = self.input_budget(config)
         if budget <= 0:
-            return updated
+            return messages
 
         tools = config.tools.get_definitions()
+        updated = self._apply_recorded_compactions(messages, compacted_tool_call_ids)
         estimate, source = estimate_prompt_tokens_chain(
             config.provider,
             config.model,
@@ -367,22 +341,21 @@ class ContextGovernor:
         target = int(budget * INFLIGHT_COMPACT_TARGET_RATIO)
         candidates = self._inflight_compaction_candidates(
             config,
-            canonical_messages,
             updated,
-            compacted_tool_result_indexes,
+            compacted_tool_call_ids,
         )
         if not candidates:
             return updated
 
-        for candidate_idx, (idx, canonical_idx) in enumerate(candidates):
+        for candidate_idx, (idx, tool_call_id) in enumerate(candidates):
             is_newest_candidate = candidate_idx == len(candidates) - 1
             if is_newest_candidate and estimate <= budget:
                 break
-            if canonical_idx in compacted_tool_result_indexes:
+            if tool_call_id in compacted_tool_call_ids:
                 continue
             if updated is messages:
                 updated = [dict(m) for m in messages]
-            compacted_tool_result_indexes.add(canonical_idx)
+            compacted_tool_call_ids.add(tool_call_id)
             self._compact_tool_result_at(updated, idx)
             estimate, source = estimate_prompt_tokens_chain(
                 config.provider,
@@ -394,77 +367,15 @@ class ContextGovernor:
                 break
 
         logger.debug(
-            "In-flight context compaction for {}: prompt={} budget={} target={} via {}, results={}",
+            "In-flight context compaction for {}: prompt={} budget={} target={} via {}, ids={}",
             config.session_key or "default",
             estimate,
             budget,
             target,
             source,
-            len(compacted_tool_result_indexes),
+            len(compacted_tool_call_ids),
         )
         return updated
-
-    def recover_provider_overflow(
-        self,
-        config: ContextGovernanceConfig,
-        messages: list[dict[str, Any]],
-        prepared_messages: list[dict[str, Any]],
-        compacted_tool_result_indexes: set[int],
-    ) -> ContextOverflowRecovery | None:
-        """Replace the largest current-turn result after a provider overflow.
-
-        Both returned lists preserve the assistant/tool pairing. The model copy is used for the
-        immediate retry, while the canonical copy keeps the confirmed replacement across turns.
-        The input lists remain untouched.
-        """
-        candidates: list[tuple[int, int, int, dict[str, Any]]] = []
-        for canonical_idx in range(config.inflight_start_index, len(messages)):
-            canonical_message = messages[canonical_idx]
-            if canonical_message.get("role") != "tool" or not canonical_message.get("tool_call_id"):
-                continue
-            prepared_idx = self._matching_tool_result_index(
-                messages,
-                prepared_messages,
-                canonical_idx,
-            )
-            if prepared_idx is None:
-                continue
-            prepared_message = prepared_messages[prepared_idx]
-            candidates.append((
-                len(str(prepared_message.get("content") or "")),
-                canonical_idx,
-                prepared_idx,
-                prepared_message,
-            ))
-        if not candidates:
-            return None
-
-        original_chars, canonical_idx, prepared_idx, message = max(
-            candidates,
-            key=lambda candidate: candidate[0],
-        )
-        hint = with_tool_error_recovery_hint(
-            CONTEXT_OVERFLOW_TOOL_RESULT_ERROR.format(
-                tool_name=str(message.get("name") or "tool"),
-            )
-        )
-        replacement = dict(message, content=hint)
-        if len(hint) >= original_chars:
-            return None
-
-        canonical_messages = [dict(item) for item in messages]
-        canonical_messages[canonical_idx] = dict(
-            canonical_messages[canonical_idx],
-            content=hint,
-        )
-
-        compacted_tool_result_indexes.add(canonical_idx)
-        model_messages = [dict(item) for item in prepared_messages]
-        model_messages[prepared_idx] = replacement
-        return ContextOverflowRecovery(
-            model_messages=model_messages,
-            canonical_messages=canonical_messages,
-        )
 
     def snip_history(
         self,
@@ -539,22 +450,18 @@ class ContextGovernor:
 
     def _apply_recorded_compactions(
         self,
-        canonical_messages: list[dict[str, Any]],
         messages: list[dict[str, Any]],
-        compacted_tool_result_indexes: set[int],
+        compacted_tool_call_ids: set[str],
     ) -> list[dict[str, Any]]:
-        if not compacted_tool_result_indexes:
+        if not compacted_tool_call_ids:
             return messages
         updated = messages
-        for canonical_idx in sorted(compacted_tool_result_indexes):
-            idx = self._matching_tool_result_index(
-                canonical_messages,
-                messages,
-                canonical_idx,
-            )
-            if idx is None:
+        for idx, msg in enumerate(messages):
+            if msg.get("role") != "tool":
                 continue
-            msg = messages[idx]
+            tool_call_id = msg.get("tool_call_id")
+            if not tool_call_id or str(tool_call_id) not in compacted_tool_call_ids:
+                continue
             summary = self._summary_for(msg)
             if msg.get("content") == summary:
                 continue
@@ -566,29 +473,22 @@ class ContextGovernor:
     def _inflight_compaction_candidates(
         self,
         config: ContextGovernanceConfig,
-        canonical_messages: list[dict[str, Any]],
         messages: list[dict[str, Any]],
-        compacted_tool_result_indexes: set[int],
-    ) -> list[tuple[int, int]]:
-        compactable: list[tuple[int, int]] = []
-        for canonical_idx in range(config.inflight_start_index, len(canonical_messages)):
-            msg = canonical_messages[canonical_idx]
+        compacted_tool_call_ids: set[str],
+    ) -> list[tuple[int, str]]:
+        compactable: list[tuple[int, str]] = []
+        for idx, msg in enumerate(messages):
+            if idx < config.inflight_start_index:
+                continue
             if msg.get("role") != "tool" or msg.get("name") not in COMPACTABLE_TOOLS:
                 continue
             tool_call_id = msg.get("tool_call_id")
-            if not tool_call_id or canonical_idx in compacted_tool_result_indexes:
+            if not tool_call_id or str(tool_call_id) in compacted_tool_call_ids:
                 continue
-            idx = self._matching_tool_result_index(
-                canonical_messages,
-                messages,
-                canonical_idx,
-            )
-            if idx is None:
-                continue
-            content = messages[idx].get("content")
+            content = msg.get("content")
             if not isinstance(content, str) or len(content) < MICROCOMPACT_MIN_CHARS:
                 continue
-            compactable.append((idx, canonical_idx))
+            compactable.append((idx, str(tool_call_id)))
 
         if not compactable:
             return []
@@ -598,44 +498,6 @@ class ContextGovernor:
         # after stale ones so the newest result is naturally last.
         fallback = compactable[primary_count:]
         return primary + fallback
-
-    @staticmethod
-    def _matching_tool_result_index(
-        canonical_messages: list[dict[str, Any]],
-        model_messages: list[dict[str, Any]],
-        canonical_idx: int,
-    ) -> int | None:
-        """Map one canonical tool-result occurrence to its model-copy occurrence.
-
-        Governance may remove older history before this lookup, so absolute indexes do not
-        remain aligned. Matching the same tool-call ID from the end preserves the identity of
-        the current-turn occurrence even when an earlier turn reused that ID.
-        """
-        if canonical_idx < 0 or canonical_idx >= len(canonical_messages):
-            return None
-        canonical_message = canonical_messages[canonical_idx]
-        if canonical_message.get("role") != "tool":
-            return None
-        tool_call_id = canonical_message.get("tool_call_id")
-        if not tool_call_id:
-            return None
-        normalized_id = str(tool_call_id)
-        later_occurrences = sum(
-            1
-            for message in canonical_messages[canonical_idx + 1:]
-            if message.get("role") == "tool"
-            and str(message.get("tool_call_id") or "") == normalized_id
-        )
-        matching_indexes = [
-            idx
-            for idx, message in enumerate(model_messages)
-            if message.get("role") == "tool"
-            and str(message.get("tool_call_id") or "") == normalized_id
-        ]
-        matching_position = len(matching_indexes) - later_occurrences - 1
-        if matching_position < 0:
-            return None
-        return matching_indexes[matching_position]
 
     def _compact_tool_result_at(self, messages: list[dict[str, Any]], idx: int) -> None:
         messages[idx]["content"] = self._summary_for(messages[idx])
