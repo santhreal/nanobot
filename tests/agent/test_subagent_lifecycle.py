@@ -366,6 +366,29 @@ class TestRunSubagent:
             assert mock_announce.call_args.args[-2] == "error"
 
     @pytest.mark.asyncio
+    async def test_context_overflow_run_is_announced_as_error(self, tmp_path):
+        sm = _manager(tmp_path)
+        fallback = "The context is too large for me to complete this request."
+        sm.runner.run = AsyncMock(return_value=AgentRunResult(
+            final_content=fallback, messages=[], stop_reason="context_overflow",
+        ))
+        status = SubagentStatus(
+            task_id="t1",
+            label="label",
+            task_description="do task",
+            started_at=time.monotonic(),
+        )
+        with patch.object(sm, "_announce_result", new_callable=AsyncMock) as mock_announce:
+            await sm._run_subagent(
+                "t1", "do task", "label",
+                {"channel": "cli", "chat_id": "direct"}, status, _runtime(),
+            )
+
+            assert status.stop_reason == "context_overflow"
+            assert mock_announce.call_args.args[3] == fallback
+            assert mock_announce.call_args.args[-2] == "error"
+
+    @pytest.mark.asyncio
     async def test_exception_run(self, tmp_path):
         sm = _manager(tmp_path)
         sm.runner.run = AsyncMock(side_effect=RuntimeError("LLM down"))

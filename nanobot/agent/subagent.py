@@ -348,6 +348,12 @@ class SubagentManager:
                     self._format_partial_progress(result),
                     origin, "error", origin_message_id,
                 )
+            elif result.stop_reason == "context_overflow":
+                await self._announce_result(
+                    task_id, label, task,
+                    result.final_content or "The subagent could not complete the task: context overflow.",
+                    origin, "error", origin_message_id,
+                )
             elif result.stop_reason == "error":
                 await self._announce_result(
                     task_id, label, task,

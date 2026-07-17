@@ -603,16 +603,16 @@ def test_microcompact_compacts_newest_when_it_alone_overflows(monkeypatch):
 
     monkeypatch.setattr("nanobot.agent.context_governance.estimate_prompt_tokens_chain", estimate)
 
-    compacted_tool_call_ids: set[str] = set()
+    compacted_tool_result_indexes: set[int] = set()
     result = ContextGovernor().compact_inflight_overflow(
         _governance_config(provider, tools, spec),
         messages,
-        compacted_tool_call_ids,
+        compacted_tool_result_indexes,
     )
 
     tool_msg = next(m for m in result if m.get("role") == "tool")
     assert "compacted to fit context" in tool_msg["content"]
-    assert compacted_tool_call_ids == {"c0"}
+    assert compacted_tool_result_indexes == {2}
 
 
 def test_context_governor_keeps_compaction_boundary_stable(monkeypatch):
@@ -644,14 +644,14 @@ def test_context_governor_keeps_compaction_boundary_stable(monkeypatch):
     monkeypatch.setattr("nanobot.agent.context_governance.estimate_prompt_tokens_chain", estimate)
 
     governor = ContextGovernor()
-    compacted_tool_call_ids: set[str] = set()
+    compacted_tool_result_indexes: set[int] = set()
     config = _governance_config(provider, tools, spec, inflight_start_index=0)
-    first = governor.compact_inflight_overflow(config, messages, compacted_tool_call_ids)
-    first_ids = set(compacted_tool_call_ids)
+    first = governor.compact_inflight_overflow(config, messages, compacted_tool_result_indexes)
+    first_indexes = set(compacted_tool_result_indexes)
 
-    second = governor.compact_inflight_overflow(config, messages, compacted_tool_call_ids)
+    second = governor.compact_inflight_overflow(config, messages, compacted_tool_result_indexes)
 
-    assert compacted_tool_call_ids == first_ids
+    assert compacted_tool_result_indexes == first_indexes
     assert [m.get("content") for m in second] == [m.get("content") for m in first]
 
 
@@ -906,20 +906,96 @@ def test_provider_overflow_recovery_replaces_largest_result_without_tokenizer(mo
         fail_if_tokenized,
     )
 
-    compacted_tool_call_ids: set[str] = set()
+    compacted_tool_result_indexes: set[int] = set()
     recovered = ContextGovernor().recover_provider_overflow(
         _governance_config(provider, tools, spec),
         messages,
         prepared_messages,
-        compacted_tool_call_ids,
+        compacted_tool_result_indexes,
     )
 
     assert recovered is not None
-    assert compacted_tool_call_ids == {"large"}
+    assert compacted_tool_result_indexes == {1}
     assert recovered.model_messages[0]["content"] == "s" * 500
     assert "too large to fit" in recovered.model_messages[1]["content"]
     assert "too large to fit" in recovered.canonical_messages[1]["content"]
     assert messages[1]["content"] == "l" * 1000
+
+
+def test_provider_overflow_recovery_distinguishes_duplicate_tool_call_ids():
+    provider = MagicMock()
+    tools = MagicMock()
+    tools.get_definitions.return_value = []
+    spec = make_run_spec(
+        provider,
+        initial_messages=[],
+        tools=tools,
+        model="test-model",
+        max_iterations=1,
+        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+    )
+    historical_result = "h" * 2000
+    current_result = "c" * 1000
+    messages = [
+        {"role": "user", "content": "old request"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{
+                "id": "duplicate",
+                "type": "function",
+                "function": {"name": "read_file", "arguments": "{}"},
+            }],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "duplicate",
+            "name": "read_file",
+            "content": historical_result,
+        },
+        {"role": "user", "content": "current request"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{
+                "id": "duplicate",
+                "type": "function",
+                "function": {"name": "read_file", "arguments": "{}"},
+            }],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "duplicate",
+            "name": "read_file",
+            "content": current_result,
+        },
+    ]
+    prepared_messages = [dict(message) for message in messages]
+    config = _governance_config(provider, tools, spec, inflight_start_index=4)
+    compacted_tool_result_indexes: set[int] = set()
+    governor = ContextGovernor()
+
+    recovered = governor.recover_provider_overflow(
+        config,
+        messages,
+        prepared_messages,
+        compacted_tool_result_indexes,
+    )
+
+    assert recovered is not None
+    assert compacted_tool_result_indexes == {5}
+    assert recovered.model_messages[2]["content"] == historical_result
+    assert recovered.canonical_messages[2]["content"] == historical_result
+    assert "too large to fit" in recovered.model_messages[5]["content"]
+    assert "too large to fit" in recovered.canonical_messages[5]["content"]
+
+    followup_messages = governor.prepare_for_model(
+        config,
+        recovered.canonical_messages,
+        compacted_tool_result_indexes,
+    )
+    assert followup_messages[2]["content"] == historical_result
+    assert "compacted to fit context" in followup_messages[5]["content"]
 
 
 @pytest.mark.asyncio

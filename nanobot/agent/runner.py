@@ -340,7 +340,7 @@ class AgentRunner:
         length_recovery_count = 0
         had_injections = False
         injection_cycles = 0
-        compacted_tool_call_ids: set[str] = set()
+        compacted_tool_result_indexes: set[int] = set()
         governance_config = ContextGovernanceConfig(
             provider=spec.runtime.provider,
             model=spec.runtime.model,
@@ -363,7 +363,7 @@ class AgentRunner:
                 messages_for_model = self.context_governor.prepare_for_model(
                     governance_config,
                     messages,
-                    compacted_tool_call_ids,
+                    compacted_tool_result_indexes,
                 )
             except Exception:
                 logger.exception(
@@ -399,7 +399,7 @@ class AgentRunner:
                     governance_config,
                     messages,
                     messages_for_model,
-                    compacted_tool_call_ids,
+                    compacted_tool_result_indexes,
                     hook,
                     context,
                 )
@@ -964,7 +964,7 @@ class AgentRunner:
         governance_config: ContextGovernanceConfig,
         messages: list[dict[str, Any]],
         messages_for_model: list[dict[str, Any]],
-        compacted_tool_call_ids: set[str],
+        compacted_tool_result_indexes: set[int],
         hook: AgentHook,
         context: AgentHookContext,
     ) -> tuple[list[dict[str, Any]], LLMResponse] | None:
@@ -973,7 +973,7 @@ class AgentRunner:
                 governance_config,
                 messages,
                 messages_for_model,
-                compacted_tool_call_ids,
+                compacted_tool_result_indexes,
             )
         except Exception:
             logger.exception(
