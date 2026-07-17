@@ -941,6 +941,64 @@ describe("AgentActivityCluster", () => {
     expect(cliRow!.compareDocumentPosition(fetchRow!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it("renders web search results as lightweight branded source rows", () => {
+    const line = 'web_search({"query":"agent frameworks"})';
+    render(
+      <AgentActivityCluster
+        messages={[{
+          id: "t-web-search-results",
+          role: "tool",
+          kind: "trace",
+          content: line,
+          traces: [line],
+          toolEvents: [{
+            phase: "end",
+            call_id: "call-web-search",
+            name: "web_search",
+            arguments: { query: "agent frameworks" },
+            result: [
+              "Results for: agent frameworks",
+              "",
+              "1. OpenAI Agents SDK",
+              "   https://openai.com/index/new-tools-for-building-agents/?utm_source=test",
+              "   Build and deploy agentic applications.",
+              "2. Building effective agents",
+              "   https://www.anthropic.com/engineering/building-effective-agents",
+              "   Practical patterns for reliable agents.",
+              "3. Internal dashboard",
+              "   http://localhost:3000/search",
+            ].join("\n"),
+          }],
+          createdAt: 1,
+        }]}
+        isTurnStreaming
+        hasBodyBelow={false}
+      />,
+    );
+
+    expect(screen.getByText("Searched the web")).toBeInTheDocument();
+    expect(screen.getByText("agent frameworks")).toBeInTheDocument();
+    expect(screen.getByText("2 sources")).toBeInTheDocument();
+
+    const openAiLink = screen.getByText("OpenAI Agents SDK").closest("a");
+    const anthropicLink = screen.getByText("Building effective agents").closest("a");
+    expect(openAiLink).toHaveAttribute(
+      "href",
+      "https://openai.com/index/new-tools-for-building-agents/?utm_source=test",
+    );
+    expect(anthropicLink).toHaveAttribute(
+      "href",
+      "https://www.anthropic.com/engineering/building-effective-agents",
+    );
+    expect(screen.getByText("openai.com/index/new-tools-for-building-agents")).toBeInTheDocument();
+    expect(screen.getByText("anthropic.com/engineering/building-effective-agents")).toBeInTheDocument();
+    expect(screen.getByTestId("activity-web-search-favicon-openai.com")).toBeInTheDocument();
+    expect(screen.getByTestId("activity-web-search-favicon-anthropic.com")).toBeInTheDocument();
+    expect(screen.queryByText("Internal dashboard")).not.toBeInTheDocument();
+    expect(screen.queryByText("Build and deploy agentic applications.")).not.toBeInTheDocument();
+    expect(screen.getByTestId("activity-web-search-results")).not.toHaveClass("border");
+  });
+
   it("labels rejected CLI app calls as failed instead of ran", () => {
     render(
       <AgentActivityCluster

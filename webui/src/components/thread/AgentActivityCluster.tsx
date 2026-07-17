@@ -29,6 +29,9 @@ import {
 } from "@/components/thread/activity/generic-tool-model";
 import { ReasoningRow } from "@/components/thread/activity/ReasoningRow";
 import { ThinkingReasoningShell } from "@/components/thread/activity/ThinkingReasoningShell";
+import { WebSearchRun } from "@/components/thread/activity/WebSearchRun";
+import { webSearchRunsByTraceLine } from "@/components/thread/activity/web-search-model";
+import { displayWebHost, formatCompactWebUrl, parsePublicHttpUrl } from "@/components/thread/activity/web-url";
 import {
   activityEvidenceFromMessageMedia,
   activityEvidenceFromToolEvent,
@@ -769,6 +772,7 @@ function ActivityTraceTimeline({
   const lines = traceLines(message);
   const cliRunsByLine = cliRunMapByTraceLine(message);
   const mcpRunsByLine = mcpRunMapByTraceLine(message);
+  const webSearchRunsByLine = webSearchRunsByTraceLine(message.toolEvents ?? []);
   const evidenceByLine = toolEvidenceByTraceLine(message);
   const genericStateByLine = genericToolStateByTraceLine(message);
   const trailingEvidence = activityEvidenceFromMessageMedia(message);
@@ -791,6 +795,29 @@ function ActivityTraceTimeline({
   };
 
   lines.forEach((line, index) => {
+    const webSearchRun = webSearchRunsByLine.get(line);
+    if (webSearchRun) {
+      flushNormalLines(String(index));
+      renderedRunKeys.add(webSearchRun.key);
+      items.push(
+        <WebSearchRun
+          key={`${message.id}:web-search:${webSearchRun.key}:${index}`}
+          run={webSearchRun}
+          turnActive={active}
+        />,
+      );
+      const evidence = evidenceByLine.get(line) ?? [];
+      if (evidence.length) {
+        items.push(
+          <ActivityEvidenceList
+            key={`${message.id}:web-search-evidence:${webSearchRun.key}:${index}`}
+            evidence={evidence}
+          />,
+        );
+      }
+      return;
+    }
+
     const cliRun = cliRunsByLine.get(line) ?? parseCliRunTrace(line);
     if (cliRun) {
       flushNormalLines(String(index));
@@ -844,6 +871,25 @@ function ActivityTraceTimeline({
 
   flushNormalLines("tail");
 
+  for (const [line, run] of webSearchRunsByLine) {
+    if (renderedRunKeys.has(run.key)) continue;
+    items.push(
+      <WebSearchRun
+        key={`${message.id}:web-search:${run.key}:event`}
+        run={run}
+        turnActive={active}
+      />,
+    );
+    const evidence = evidenceByLine.get(line) ?? [];
+    if (evidence.length) {
+      items.push(
+        <ActivityEvidenceList
+          key={`${message.id}:web-search-evidence:${run.key}:event`}
+          evidence={evidence}
+        />,
+      );
+    }
+  }
   for (const run of cliRunsByLine.values()) {
     if (renderedRunKeys.has(run.key)) continue;
     items.push(
@@ -1085,7 +1131,7 @@ function describeTraceLine(line: string): TraceDescription {
   const name = functionMatch?.[1] ?? "";
   const args = functionMatch?.[2] ?? "";
   const parsedUrl = traceUrlFromArgs(args, trimmed);
-  const webDetail = parsedUrl ? formatTraceUrl(parsedUrl) : "";
+  const webDetail = parsedUrl ? formatCompactWebUrl(parsedUrl) : "";
   const plainWebReadTrace =
     !!parsedUrl && /\b(fetch(?:ing|ed)?|read(?:ing)?|opened?|opening)\b/i.test(trimmed);
   if (/search/i.test(name)) {
@@ -1097,7 +1143,7 @@ function describeTraceLine(line: string): TraceDescription {
       label: "Reading",
       detail: webDetail || previewTraceDetail(args, trimmed),
       url: parsedUrl?.href,
-      host: parsedUrl ? displayHost(parsedUrl.hostname) : undefined,
+      host: parsedUrl ? displayWebHost(parsedUrl.hostname) : undefined,
     };
   }
   if (isShellTraceName(name)) {
@@ -1225,49 +1271,6 @@ function collectUrlCandidates(value: unknown, candidates: string[]) {
   for (const key of ["url", "uri", "href", "link"]) {
     if (typeof record[key] === "string") candidates.push(record[key]);
   }
-}
-
-function parsePublicHttpUrl(value: string): URL | null {
-  try {
-    const url = new URL(value);
-    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
-    if (isPrivateHostname(url.hostname)) return null;
-    return url;
-  } catch {
-    return null;
-  }
-}
-
-function isPrivateHostname(hostname: string): boolean {
-  const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
-  if (!host || host === "localhost" || host.endsWith(".local")) return true;
-  if (!host.includes(".") && !host.includes(":")) return true;
-  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
-  if (ipv4) {
-    const [, aText, bText] = ipv4;
-    const a = Number(aText);
-    const b = Number(bText);
-    return (
-      a === 0 ||
-      a === 10 ||
-      a === 127 ||
-      (a === 100 && b >= 64 && b <= 127) ||
-      (a === 169 && b === 254) ||
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168)
-    );
-  }
-  return host === "::1" || host.startsWith("fc") || host.startsWith("fd") || host.startsWith("fe80:");
-}
-
-function displayHost(hostname: string): string {
-  return hostname.replace(/^www\./i, "").toLowerCase();
-}
-
-function formatTraceUrl(url: URL): string {
-  const host = displayHost(url.hostname);
-  const path = url.pathname && url.pathname !== "/" ? url.pathname : "";
-  return `${host}${path}`;
 }
 
 function genericToolTraceDetail(name: string, args: string): string {
