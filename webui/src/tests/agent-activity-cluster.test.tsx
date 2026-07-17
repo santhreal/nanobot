@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { AgentActivityCluster } from "@/components/thread/AgentActivityCluster";
@@ -1071,7 +1071,7 @@ describe("AgentActivityCluster", () => {
     expect(screen.getByText("url: http://localhost:3000/dashboard")).toBeInTheDocument();
   });
 
-  it("shows readable argument previews for generic tool traces", () => {
+  it("presents generic tool traces as semantic actions with optional technical details", () => {
     render(
       <AgentActivityCluster
         messages={[{
@@ -1091,9 +1091,86 @@ describe("AgentActivityCluster", () => {
       />,
     );
 
-    expect(screen.getByText("find_files query: thread · glob: *.tsx")).toBeInTheDocument();
-    expect(screen.getByText("list_dir path: memory")).toBeInTheDocument();
-    expect(screen.getByText("grep pattern: dream_cursor")).toBeInTheDocument();
+    expect(screen.getByText("Found files")).toBeInTheDocument();
+    expect(screen.getByText("Listed files")).toBeInTheDocument();
+    expect(screen.getByText("Searching files")).toBeInTheDocument();
+
+    const searchDetails = screen.getByLabelText("Technical details for Searching files");
+    expect(searchDetails.closest("details")).not.toHaveAttribute("open");
+    fireEvent.click(searchDetails);
+    expect(searchDetails.closest("details")).toHaveAttribute("open");
+    expect(screen.getByText("dream_cursor")).toBeVisible();
+  });
+
+  it("groups repeated searches over internal tool results without exposing raw paths", () => {
+    const pattern = "Jul (1[0-7]), 2026|July (1[0-7]), 2026|2026-07-(1[0-7])";
+    const secondPattern = "Anthropic|OpenAI|DeepMind";
+    const firstPath = "/Users/test/.nanobot/workspace/.nanobot/tool-results/websocket_session/call_first-result.txt";
+    const secondPath = "/Users/test/.nanobot/workspace/.nanobot/tool-results/websocket_session/call_second-result.txt";
+    const traces = [
+      `grep(${JSON.stringify({ pattern, path: firstPath })})`,
+      `grep(${JSON.stringify({ pattern: secondPattern, path: secondPath })})`,
+    ];
+
+    render(
+      <AgentActivityCluster
+        messages={[{
+          id: "t-grouped-grep",
+          role: "tool",
+          kind: "trace",
+          content: traces.join("\n"),
+          traces,
+          createdAt: 1,
+        }]}
+        isTurnStreaming={false}
+        hasBodyBelow={false}
+      />,
+    );
+
+    const runs = screen.getAllByTestId("activity-generic-tool-run");
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toHaveTextContent("Searched collected sources");
+    expect(runs[0]).toHaveTextContent("2 files");
+    expect(screen.queryByText(firstPath)).not.toBeInTheDocument();
+    expect(screen.queryByText(secondPath)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("Technical details for Searched collected sources"));
+    expect(screen.getByText(pattern)).toBeVisible();
+    expect(screen.getByText(secondPattern)).toBeVisible();
+    expect(screen.getByText("call_first-result.txt")).toBeVisible();
+    expect(screen.getByText("call_second-result.txt")).toBeVisible();
+  });
+
+  it("surfaces generic tool failures without dumping their arguments", () => {
+    const args = { pattern: "needle", path: "workspace/file.txt" };
+    const line = `grep(${JSON.stringify(args)})`;
+    render(
+      <AgentActivityCluster
+        messages={[{
+          id: "t-grep-error",
+          role: "tool",
+          kind: "trace",
+          content: line,
+          traces: [line],
+          toolEvents: [{
+            phase: "error",
+            call_id: "call-grep-error",
+            name: "grep",
+            arguments: args,
+            error: "Permission denied; token=super-secret",
+          }],
+          createdAt: 1,
+        }]}
+        isTurnStreaming={false}
+        hasBodyBelow={false}
+      />,
+    );
+
+    expect(screen.getByText("Could not search files")).toBeInTheDocument();
+    expect(screen.getByText(/Permission denied/)).not.toBeVisible();
+    fireEvent.click(screen.getByLabelText("Technical details for Could not search files"));
+    expect(screen.getByText("Permission denied; token=<redacted>")).toBeVisible();
+    expect(screen.queryByText(/super-secret/)).not.toBeInTheDocument();
   });
 
   it("summarizes long shell traces instead of dumping scripts", () => {
@@ -1414,6 +1491,82 @@ describe("AgentActivityCluster", () => {
     );
   });
 
+  it("keeps image generation status and evidence in the generic activity surface", () => {
+    const message: UIMessage = {
+      id: "image-run",
+      role: "tool",
+      kind: "trace",
+      content: 'generate_image({"prompt":"an orange nanobot on a desk","aspect_ratio":"4:3"})',
+      traces: ['generate_image({"prompt":"an orange nanobot on a desk","aspect_ratio":"4:3"})'],
+      toolEvents: [{
+        phase: "start",
+        call_id: "image-call",
+        name: "generate_image",
+        arguments: { prompt: "an orange nanobot on a desk", aspect_ratio: "4:3" },
+      }],
+      createdAt: 1,
+    };
+    const { rerender } = render(
+      <AgentActivityCluster messages={[message]} isTurnStreaming hasBodyBelow={false} />,
+    );
+
+    expect(screen.getByTestId("activity-generic-tool-run")).toHaveTextContent("Running Generate Image");
+
+    rerender(
+      <AgentActivityCluster
+        messages={[{
+          ...message,
+          toolEvents: [{
+            ...message.toolEvents![0],
+            phase: "end",
+            files: [{
+              url: "/api/media/signed/generated.png",
+              name: "generated.png",
+              type: "image/png",
+            }],
+          }],
+        }]}
+        isTurnStreaming={false}
+        hasBodyBelow={false}
+      />,
+    );
+
+    expect(screen.getByTestId("activity-generic-tool-run")).toHaveTextContent("Ran Generate Image");
+    expect(screen.getByRole("img", { name: "generated.png" })).toHaveAttribute(
+      "src",
+      "/api/media/signed/generated.png",
+    );
+  });
+
+  it("keeps image-generation failures visible and actionable", () => {
+    render(
+      <AgentActivityCluster
+        messages={[{
+          id: "image-error",
+          role: "tool",
+          kind: "trace",
+          content: 'generate_image({"prompt":"a launch poster"})',
+          traces: ['generate_image({"prompt":"a launch poster"})'],
+          toolEvents: [{
+            phase: "error",
+            call_id: "image-error-call",
+            name: "generate_image",
+            arguments: { prompt: "a launch poster" },
+            error: "Image provider quota exceeded",
+          }],
+          createdAt: 1,
+        }]}
+        isTurnStreaming={false}
+        hasBodyBelow={false}
+      />,
+    );
+
+    expect(screen.getByTestId("activity-generic-tool-run")).toHaveTextContent("Generate Image failed");
+    expect(screen.getByText("Image provider quota exceeded")).not.toBeVisible();
+    fireEvent.click(screen.getByLabelText("Technical details for Generate Image failed"));
+    expect(screen.getByText("Image provider quota exceeded")).toBeVisible();
+  });
+
   it("shows missing evidence as a file-safe placeholder", () => {
     render(
       <AgentActivityCluster
@@ -1438,7 +1591,8 @@ describe("AgentActivityCluster", () => {
     );
 
     expect(screen.getByText("Vision")).toBeInTheDocument();
-    expect(screen.getByTestId("activity-evidence-preview")).toBeInTheDocument();
-    expect(screen.getByText("missing.png")).toBeInTheDocument();
+    const evidence = screen.getByTestId("activity-evidence-preview");
+    expect(evidence).toBeInTheDocument();
+    expect(within(evidence).getByText("missing.png")).toBeInTheDocument();
   });
 });

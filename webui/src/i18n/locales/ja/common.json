@@ -1053,6 +1053,7 @@
     }
   },
   "message": {
+    "tasks": "タスク",
     "streaming": "生成中",
     "assistantTyping": "アシスタントが入力中",
     "toolSingle": "ツールを使用中",

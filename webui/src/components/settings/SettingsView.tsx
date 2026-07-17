@@ -581,7 +581,7 @@ export function SettingsView({
   const [cliAppsError, setCliAppsError] = useState<string | null>(null);
   const [nanobotFeaturesError, setNanobotFeaturesError] = useState<string | null>(null);
   const [cliAppsFocusName, setCliAppsFocusName] = useState<string | null>(null);
-  const [appsKindFilter, setAppsKindFilter] = useState<AppsKindFilter>("ready");
+  const [appsKindFilter, setAppsKindFilter] = useState<AppsKindFilter>("cli");
   const [mcpMessage, setMcpMessage] = useState<string | null>(null);
   const [mcpError, setMcpError] = useState<string | null>(null);
   const [automationsError, setAutomationsError] = useState<string | null>(null);
@@ -8480,6 +8480,7 @@ function SegmentedControl({
         <button
           key={option.value}
           type="button"
+          aria-pressed={value === option.value}
           onClick={() => onChange(option.value)}
           className={cn(
             "rounded-full px-3 py-1 transition-colors",

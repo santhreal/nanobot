@@ -2,7 +2,6 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import {
   AlertCircle,
   CheckCircle2,
-  ChevronRight,
   FileImage,
   Layers,
   Search,
@@ -21,7 +20,15 @@ import { ActivityGroup } from "@/components/thread/activity/ActivityGroup";
 import { ActivityStep } from "@/components/thread/activity/ActivityStep";
 import { DiffPair } from "@/components/thread/activity/DiffPair";
 import { FileEditGroup, hasVisibleDiffStats, type FileEditSummary } from "@/components/thread/activity/FileEditRow";
+import { GenericToolRun } from "@/components/thread/activity/GenericToolRun";
+import {
+  canGroupGenericToolRuns,
+  type GenericToolRunItem,
+  type GenericToolStatus,
+  parseGenericToolTrace,
+} from "@/components/thread/activity/generic-tool-model";
 import { ReasoningRow } from "@/components/thread/activity/ReasoningRow";
+import { ThinkingReasoningShell } from "@/components/thread/activity/ThinkingReasoningShell";
 import {
   activityEvidenceFromMessageMedia,
   activityEvidenceFromToolEvent,
@@ -38,8 +45,6 @@ import { formatToolCallTrace } from "@/lib/tool-traces";
 import { cn } from "@/lib/utils";
 import type { CliAppInfo, McpPresetInfo, ToolProgressEvent, UIFileEdit, UIMessage } from "@/lib/types";
 
-/** Scrollport height for the Cursor-style “live trace” strip (tailwind spacing). */
-const CLUSTER_SCROLL_MAX_CLASS = "max-h-52";
 const ACTIVITY_SCROLL_NEAR_BOTTOM_PX = 24;
 
 export { isAgentActivityMember, isReasoningOnlyAssistant };
@@ -460,101 +465,54 @@ export function AgentActivityCluster({
 
   return (
     <div className={cn("w-full", hasBodyBelow && "mb-2")}>
-      <button
-        type="button"
-        onClick={toggleOuter}
-        className={cn(
-          "group flex max-w-full items-center gap-1.5 rounded-md px-1 py-1",
-          "text-[12.5px] text-muted-foreground/72 transition-colors hover:text-muted-foreground",
+      <ThinkingReasoningShell
+        active={isTurnStreaming}
+        expanded={outerExpanded}
+        label={singleFilePath
+          ? fileActivityVerb(hasLiveEditingFiles, hasFailedFiles, hasDeletedFiles)
+          : thoughtLabel}
+        accessory={(
+          <>
+            {singleFilePath ? (
+              <FileReferenceChip
+                path={singleFilePath}
+                tooltipPath={singleFileTooltipPath}
+                previewPath={singleFileTooltipPath || singleFilePath}
+                onOpen={onOpenFilePreview}
+                active={hasLiveEditingFiles}
+                className="-my-0.5 min-w-0"
+                textClassName="text-xs"
+                testId="activity-header-file-reference"
+              />
+            ) : null}
+            {fileCount > 0 && hasDiffStats ? (
+              <span className="inline-flex min-w-0 items-center gap-1 text-muted-foreground/85">
+                <DiffPair added={added} deleted={deleted} />
+              </span>
+            ) : null}
+          </>
         )}
-        aria-expanded={outerExpanded}
-        aria-label={summary}
+        summary={summary}
+        viewportRef={activityScrollRef}
+        contentRef={activityContentRef}
+        onToggle={toggleOuter}
+        onScroll={onActivityScroll}
       >
-        <StreamingLabelSheen
+        <ActivityMessageTimeline
+          messages={messages}
           active={isTurnStreaming}
-          className="min-w-0"
-        >
-          {singleFilePath ? fileActivityVerb(hasLiveEditingFiles, hasFailedFiles, hasDeletedFiles) : thoughtLabel}
-        </StreamingLabelSheen>
-        {singleFilePath ? (
-          <FileReferenceChip
-            path={singleFilePath}
-            tooltipPath={singleFileTooltipPath}
-            previewPath={singleFileTooltipPath || singleFilePath}
-            onOpen={onOpenFilePreview}
-            active={hasLiveEditingFiles}
-            className="-my-0.5 min-w-0"
-            textClassName="text-xs"
-            testId="activity-header-file-reference"
+          cliAppsByName={cliAppsByName}
+          mcpPresetsByName={mcpPresetsByName}
+          onOpenFilePreview={onOpenFilePreview}
+        />
+        {fileEdits.length ? (
+          <FileEditGroup
+            edits={fileEdits}
+            displayMode={fileEditDisplayMode}
+            onOpenFilePreview={onOpenFilePreview}
           />
         ) : null}
-        <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-left">
-          {fileCount > 0 && hasDiffStats && (
-            <span className="inline-flex min-w-0 items-center gap-1 text-muted-foreground/85">
-              <DiffPair added={added} deleted={deleted} />
-            </span>
-          )}
-        </span>
-        <ChevronRight
-          aria-hidden
-          className={cn(
-            "h-3.5 w-3.5 shrink-0 transition-transform duration-200",
-            outerExpanded && "rotate-90",
-          )}
-        />
-      </button>
-
-      {outerExpanded && (
-        <div
-          className={cn(
-            "ml-1 mt-1 overflow-hidden pl-1",
-          )}
-        >
-          <div
-            ref={activityScrollRef}
-            data-testid="agent-activity-scroll"
-            onScroll={onActivityScroll}
-            className={cn(
-              CLUSTER_SCROLL_MAX_CLASS,
-              "overflow-y-auto py-1 pr-1 scrollbar-thin scrollbar-track-transparent",
-            )}
-          >
-            <div ref={activityContentRef} className="flex flex-col gap-0.5">
-              {messages.map((m) => {
-                if (isReasoningOnlyAssistant(m)) {
-                  return (
-                    <ReasoningRow
-                      key={m.id}
-                      text={m.reasoning ?? ""}
-                      streaming={isTurnStreaming && !!m.reasoningStreaming}
-                      onOpenFilePreview={onOpenFilePreview}
-                    />
-                  );
-                }
-                if (m.kind === "trace") {
-                  return (
-                    <ActivityTraceTimeline
-                      key={m.id}
-                      message={m}
-                      active={isTurnStreaming}
-                      cliAppsByName={cliAppsByName}
-                      mcpPresetsByName={mcpPresetsByName}
-                    />
-                  );
-                }
-                return null;
-              })}
-              {fileEdits.length ? (
-                <FileEditGroup
-                  edits={fileEdits}
-                  displayMode={fileEditDisplayMode}
-                  onOpenFilePreview={onOpenFilePreview}
-                />
-              ) : null}
-            </div>
-          </div>
-        </div>
-      )}
+      </ThinkingReasoningShell>
     </div>
   );
 }
@@ -694,25 +652,105 @@ function traceLines(message: UIMessage): string[] {
   return message.content.trim() ? [message.content] : [];
 }
 
+function ActivityMessageTimeline({
+  messages,
+  active,
+  cliAppsByName,
+  mcpPresetsByName,
+  onOpenFilePreview,
+}: {
+  messages: UIMessage[];
+  active: boolean;
+  cliAppsByName: Map<string, CliAppInfo>;
+  mcpPresetsByName: Map<string, McpPresetInfo>;
+  onOpenFilePreview?: (path: string) => void;
+}) {
+  const items: ReactNode[] = [];
+
+  messages.forEach((message, index) => {
+    if (isReasoningOnlyAssistant(message)) {
+      items.push(
+        <ReasoningRow
+          key={message.id}
+          text={message.reasoning ?? ""}
+          streaming={active && !!message.reasoningStreaming}
+          onOpenFilePreview={onOpenFilePreview}
+        />,
+      );
+      return;
+    }
+    if (message.kind === "trace") {
+      items.push(
+        <ActivityTraceTimeline
+          key={message.id}
+          message={message}
+          active={active && index === messages.length - 1}
+          cliAppsByName={cliAppsByName}
+          mcpPresetsByName={mcpPresetsByName}
+        />,
+      );
+    }
+  });
+  return <>{items}</>;
+}
+
 function ActivityTraceList({
   lines,
   active,
   evidenceByLine,
+  stateByLine,
 }: {
   lines: string[];
   active: boolean;
   evidenceByLine?: Map<string, ActivityEvidence[]>;
+  stateByLine?: Map<string, GenericToolState>;
 }) {
+  const items: ReactNode[] = [];
+  let genericItems: GenericToolRunItem[] = [];
+
+  const flushGenericItems = (suffix: string) => {
+    if (!genericItems.length) return;
+    items.push(
+      <GenericToolRun
+        key={`generic-tool:${genericItems[0].trace.groupKey}:${suffix}`}
+        items={genericItems}
+      />,
+    );
+    genericItems = [];
+  };
+
+  lines.forEach((line, index) => {
+    const trace = parseGenericToolTrace(line);
+    if (trace) {
+      const explicitState = stateByLine?.get(line);
+      const fallbackStatus: GenericToolStatus = active && index === lines.length - 1 ? "running" : "done";
+      const item: GenericToolRunItem = {
+        trace,
+        status: explicitState?.status === "running" && !active ? "done" : explicitState?.status ?? fallbackStatus,
+        error: explicitState?.error,
+        evidence: evidenceByLine?.get(line) ?? [],
+      };
+      const previous = genericItems[genericItems.length - 1];
+      if (previous && !canGroupGenericToolRuns(previous, item)) flushGenericItems(String(index));
+      genericItems.push(item);
+      return;
+    }
+
+    flushGenericItems(String(index));
+    items.push(
+      <ActivityTraceRow
+        key={`${line}-${index}`}
+        line={line}
+        active={active && index === lines.length - 1}
+        evidence={evidenceByLine?.get(line) ?? []}
+      />,
+    );
+  });
+  flushGenericItems("tail");
+
   return (
     <ul className="space-y-1">
-      {lines.map((line, index) => (
-        <ActivityTraceRow
-          key={`${line}-${index}`}
-          line={line}
-          active={active && index === lines.length - 1}
-          evidence={evidenceByLine?.get(line) ?? []}
-        />
-      ))}
+      {items}
     </ul>
   );
 }
@@ -732,6 +770,7 @@ function ActivityTraceTimeline({
   const cliRunsByLine = cliRunMapByTraceLine(message);
   const mcpRunsByLine = mcpRunMapByTraceLine(message);
   const evidenceByLine = toolEvidenceByTraceLine(message);
+  const genericStateByLine = genericToolStateByTraceLine(message);
   const trailingEvidence = activityEvidenceFromMessageMedia(message);
   const renderedRunKeys = new Set<string>();
   const items: ReactNode[] = [];
@@ -745,6 +784,7 @@ function ActivityTraceTimeline({
         lines={normalLines}
         active={active}
         evidenceByLine={evidenceByLine}
+        stateByLine={genericStateByLine}
       />,
     );
     normalLines = [];
@@ -902,6 +942,44 @@ function toolEvidenceByTraceLine(message: UIMessage): Map<string, ActivityEviden
     map.set(line, [...existing, ...evidence]);
   }
   return map;
+}
+
+interface GenericToolState {
+  status: GenericToolStatus;
+  error?: string;
+}
+
+const GENERIC_TOOL_STATUS_RANK: Record<GenericToolStatus, number> = { running: 1, done: 2, error: 3 };
+
+function genericToolStateByTraceLine(message: UIMessage): Map<string, GenericToolState> {
+  const map = new Map<string, GenericToolState>();
+  for (const event of message.toolEvents ?? []) {
+    const line = formatToolCallTrace(event);
+    if (!line) continue;
+    const status: GenericToolStatus = event.phase === "error"
+      ? "error"
+      : event.phase === "end"
+        ? "done"
+        : "running";
+    const next = { status, error: status === "error" ? toolProgressError(event.error) : undefined };
+    const previous = map.get(line);
+    if (!previous || GENERIC_TOOL_STATUS_RANK[next.status] >= GENERIC_TOOL_STATUS_RANK[previous.status]) {
+      map.set(line, next);
+    }
+  }
+  return map;
+}
+
+function toolProgressError(error: unknown): string | undefined {
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object") {
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return "Tool call failed";
+    }
+  }
+  return undefined;
 }
 
 function allToolEvidence(evidenceByLine: Map<string, ActivityEvidence[]>): ActivityEvidence[] {

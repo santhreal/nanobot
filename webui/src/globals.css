@@ -226,6 +226,25 @@
     @apply list-none pl-0;
   }
 
+  /* AIcss free Streaming Text pattern, attached to nanobot's real provider
+     deltas instead of replaying text with a fake typing timer. */
+  @keyframes streaming-caret-blink {
+    0%, 45% { opacity: 1; }
+    55%, 100% { opacity: 0; }
+  }
+  .markdown-content-streaming > :last-child::after,
+  .streaming-text-fallback::after {
+    content: "";
+    display: inline-block;
+    width: 1.5px;
+    height: 1em;
+    margin-left: 3px;
+    vertical-align: -0.12em;
+    border-radius: 1px;
+    background: hsl(var(--foreground) / 0.8);
+    animation: streaming-caret-blink 1s step-end infinite;
+  }
+
   /* CJK-friendly line-height: prose paragraphs default to 1.625 which is
      tight for Chinese/Japanese/Korean characters. Bump to 1.8 for better
      readability when the browser detects a CJK primary font. */
@@ -298,6 +317,10 @@
     .streaming-text-sheen::after {
       animation: none;
       content: "";
+    }
+    .markdown-content-streaming > :last-child::after,
+    .streaming-text-fallback::after {
+      animation: none;
     }
   }
 

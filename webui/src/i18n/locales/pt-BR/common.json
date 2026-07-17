@@ -1067,6 +1067,7 @@
     }
   },
   "message": {
+    "tasks": "Tarefas",
     "streaming": "transmitindo",
     "assistantTyping": "Assistente está digitando",
     "toolSingle": "Usando uma ferramenta",

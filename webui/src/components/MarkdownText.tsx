@@ -28,17 +28,20 @@ const MemoizedMarkdownRenderer = memo(function MemoizedMarkdownRenderer({
   source,
   className,
   highlightCode,
+  streaming,
   onOpenFilePreview,
 }: {
   source: string;
   className?: string;
   highlightCode: boolean;
+  streaming: boolean;
   onOpenFilePreview?: (path: string) => void;
 }) {
   return (
     <LazyMarkdownRenderer
       className={className}
       highlightCode={highlightCode}
+      streaming={streaming}
       onOpenFilePreview={onOpenFilePreview}
     >
       {source}
@@ -94,6 +97,7 @@ export function MarkdownText({
     <div
       className={cn(
         "whitespace-pre-wrap break-words leading-relaxed text-foreground/92",
+        streaming && "streaming-text-fallback",
         className,
       )}
     >
@@ -108,6 +112,7 @@ export function MarkdownText({
           source={renderedSource}
           className={className}
           highlightCode={highlightCode}
+          streaming={streaming}
           onOpenFilePreview={onOpenFilePreview}
         />
       </Suspense>

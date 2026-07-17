@@ -1053,6 +1053,7 @@
     }
   },
   "message": {
+    "tasks": "Tâches",
     "streaming": "en cours de génération",
     "assistantTyping": "L’assistant est en train d’écrire",
     "toolSingle": "Utilisation d’un outil",

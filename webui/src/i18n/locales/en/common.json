@@ -198,7 +198,7 @@
       "imageGeneration": "Expose generate_image in chats when a configured image provider is available.",
       "imageProvider": "Choose the registry provider used by generate_image.",
       "imageProviderStatus": "Image generation reuses provider credentials from Providers.",
-      "imageModel": "Model name sent to the selected image provider.",
+      "imageModel": "Choose a model supported by the selected image provider.",
       "defaultAspectRatio": "Used when the prompt does not choose an aspect ratio.",
       "defaultImageSize": "Size hint sent to providers that support it.",
       "maxImagesPerTurn": "Upper bound for one generate_image request.",
@@ -1067,6 +1067,7 @@
     }
   },
   "message": {
+    "tasks": "Tasks",
     "streaming": "streaming",
     "assistantTyping": "Assistant is typing",
     "toolSingle": "Using a tool",

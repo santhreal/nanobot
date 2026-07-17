@@ -1053,6 +1053,7 @@
     }
   },
   "message": {
+    "tasks": "任務",
     "streaming": "串流輸出中",
     "assistantTyping": "助理正在輸入",
     "toolSingle": "正在使用工具",

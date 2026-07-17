@@ -1053,6 +1053,7 @@
     }
   },
   "message": {
+    "tasks": "Tugas",
     "streaming": "sedang mengalir",
     "assistantTyping": "Asisten sedang mengetik",
     "toolSingle": "Menggunakan sebuah alat",

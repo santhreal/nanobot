@@ -198,7 +198,7 @@
       "imageGeneration": "配置图片提供商后，在聊天中开放 generate_image。",
       "imageProvider": "选择 generate_image 使用的注册提供商。",
       "imageProviderStatus": "图片生成会复用「提供商」里的凭据。",
-      "imageModel": "发送给所选图片提供商的模型名称。",
+      "imageModel": "选择当前图片提供商支持的模型。",
       "defaultAspectRatio": "当提示词没有指定比例时使用。",
       "defaultImageSize": "发送给支持此选项的提供商的尺寸提示。",
       "maxImagesPerTurn": "单次 generate_image 请求可生成的图片上限。",
@@ -1067,6 +1067,7 @@
     }
   },
   "message": {
+    "tasks": "任务",
     "streaming": "流式输出中",
     "assistantTyping": "助手正在输入",
     "toolSingle": "正在使用工具",

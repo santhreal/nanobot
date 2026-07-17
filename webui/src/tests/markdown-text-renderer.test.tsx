@@ -339,7 +339,7 @@ describe("MarkdownTextRenderer", () => {
     expect(container).not.toHaveTextContent("</details>");
   });
 
-  it("renders task list checkboxes as quiet status marks", () => {
+  it("renders task lists as a collapsible progress surface", () => {
     const { container } = render(
       <MarkdownTextRenderer>
         {"- [x] 写 Markdown 示例\n- [x] 加点 emoji\n- [ ] 测试渲染效果"}
@@ -349,6 +349,44 @@ describe("MarkdownTextRenderer", () => {
     expect(container.querySelectorAll("input[type='checkbox']")).toHaveLength(0);
     expect(screen.getAllByTestId("markdown-task-checkbox")).toHaveLength(3);
     expect(container.querySelectorAll(".task-list-item")).toHaveLength(3);
+    expect(screen.getByText("2/3")).toBeInTheDocument();
+
+    const toggle = screen.getByRole("button", { name: /tasks/i });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("renders GFM tables in a responsive data surface", () => {
+    render(
+      <MarkdownTextRenderer>
+        {"| Model | Context | Price |\n| --- | ---: | ---: |\n| nanobot | 200k | $1 |"}
+      </MarkdownTextRenderer>,
+    );
+
+    const surface = screen.getByTestId("markdown-data-table");
+    expect(surface).toHaveClass("overflow-x-auto", "rounded-lg");
+    expect(screen.getByRole("table")).toHaveTextContent("nanobot");
+  });
+
+  it("marks live markdown for the provider-backed streaming caret", () => {
+    const { container } = render(
+      <MarkdownTextRenderer streaming>Still writing</MarkdownTextRenderer>,
+    );
+
+    expect(container.firstElementChild).toHaveClass("markdown-content-streaming");
+  });
+
+  it("adds line numbers to multiline fenced code without changing inline code", () => {
+    render(
+      <MarkdownTextRenderer highlightCode={false}>
+        {"```ts\nconst one = 1;\nconst two = 2;\n```\n\nUse `one` next."}
+      </MarkdownTextRenderer>,
+    );
+
+    expect(screen.getByText("1")).toBeInTheDocument();
+    expect(screen.getByText("2")).toBeInTheDocument();
+    expect(screen.getByText("one").tagName).toBe("CODE");
   });
 
   it("keeps dollar amounts from being parsed as inline math", () => {

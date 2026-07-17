@@ -1054,6 +1054,7 @@
     }
   },
   "message": {
+    "tasks": "Tareas",
     "streaming": "transmitiendo",
     "assistantTyping": "El asistente está escribiendo",
     "toolSingle": "Usando una herramienta",

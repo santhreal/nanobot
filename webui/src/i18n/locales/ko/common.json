@@ -1053,6 +1053,7 @@
     }
   },
   "message": {
+    "tasks": "작업",
     "streaming": "생성 중",
     "assistantTyping": "도우미가 입력 중",
     "toolSingle": "도구 사용 중",

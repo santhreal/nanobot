@@ -254,7 +254,7 @@ export function MessageBubble({
         />
       ) : null}
       {empty && message.isStreaming && !hasReasoning ? (
-        <TypingDots />
+        <ThinkingState />
       ) : empty && message.isStreaming ? null : (
         <>
           {automationSourceLabel ? (
@@ -570,30 +570,18 @@ function UserImageCell({
   );
 }
 
-/** Pre-token-arrival placeholder: three bouncing dots. */
-function TypingDots() {
+/** Pre-token-arrival state adapted from AIcss's free Thinking State pattern. */
+function ThinkingState() {
   const { t } = useTranslation();
   return (
     <span
       aria-label={t("message.assistantTyping")}
-      className="inline-flex items-center gap-1 py-1"
+      className="inline-flex min-h-7 items-center py-1 text-[13px]"
     >
-      <Dot delay="0ms" />
-      <Dot delay="150ms" />
-      <Dot delay="300ms" />
+      <StreamingLabelSheen active>
+        {t("message.reasoningStreaming", { defaultValue: "Thinking…" })}
+      </StreamingLabelSheen>
     </span>
-  );
-}
-
-function Dot({ delay }: { delay: string }) {
-  return (
-    <span
-      style={{ animationDelay: delay }}
-      className={cn(
-        "inline-block h-1.5 w-1.5 rounded-full bg-muted-foreground/60",
-        "animate-bounce",
-      )}
-    />
   );
 }
 

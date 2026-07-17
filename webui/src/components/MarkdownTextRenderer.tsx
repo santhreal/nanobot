@@ -8,8 +8,9 @@ import {
 } from "react";
 import type { Components, Options as ReactMarkdownOptions } from "react-markdown";
 import ReactMarkdown from "react-markdown";
+import { useTranslation } from "react-i18next";
 import rehypeKatex from "rehype-katex";
-import { Check, Globe2 } from "lucide-react";
+import { Check, ChevronDown, Globe2, ListTodo } from "lucide-react";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -37,6 +38,7 @@ interface MarkdownTextRendererProps {
   children: string;
   className?: string;
   highlightCode?: boolean;
+  streaming?: boolean;
   onOpenFilePreview?: (path: string) => void;
 }
 
@@ -425,6 +427,77 @@ function codeFenceFromPreChild(value: ReactNode): { code: string; language?: str
   };
 }
 
+function taskCheckedState(value: ReactNode): boolean | null {
+  if (!isValidElement(value)) return null;
+  const props = value.props as {
+    checked?: unknown;
+    children?: ReactNode;
+    type?: unknown;
+    "data-task-checked"?: unknown;
+  };
+  if (props["data-task-checked"] === true || props["data-task-checked"] === "true") return true;
+  if (props["data-task-checked"] === false || props["data-task-checked"] === "false") return false;
+  if (props.type === "checkbox" && typeof props.checked === "boolean") return props.checked;
+  for (const child of Children.toArray(props.children)) {
+    const state = taskCheckedState(child);
+    if (state !== null) return state;
+  }
+  return null;
+}
+
+/** GFM task lists rendered with AIcss's free To-do List interaction pattern. */
+function MarkdownTaskList({ children, className }: { children: ReactNode; className?: string }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(true);
+  const items = Children.toArray(children);
+  const states = items.map(taskCheckedState).filter((state) => state !== null);
+  const total = states.length || items.length;
+  const completed = states.filter(Boolean).length;
+
+  return (
+    <div className="not-prose my-3 overflow-hidden rounded-lg border border-border/65 bg-background">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        className={cn(
+          "flex min-h-9 w-full items-center gap-2 px-3 py-2 text-left text-[13px]",
+          "transition-colors hover:bg-muted/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        )}
+      >
+        <ListTodo className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+        <span className="font-medium">
+          {t("message.tasks", { defaultValue: "Tasks" })}
+        </span>
+        <span className="ml-auto text-xs tabular-nums text-muted-foreground">
+          {completed}/{total}
+        </span>
+        <ChevronDown
+          className={cn("h-4 w-4 text-muted-foreground transition-transform", !open && "-rotate-90")}
+          aria-hidden
+        />
+      </button>
+      <div
+        className={cn(
+          "grid transition-[grid-template-rows,opacity] duration-200",
+          open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
+        )}
+      >
+        <div className="min-h-0 overflow-hidden">
+          <ul
+            className={cn(
+              "m-0 list-none space-y-2 border-t border-border/55 px-3 py-2.5",
+              className,
+            )}
+          >
+            {children}
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /**
  * Heavy markdown stack (GFM, math, KaTeX, syntax highlighting) kept in a
  * separate chunk so the app shell can paint sooner on refresh.
@@ -433,6 +506,7 @@ export default function MarkdownTextRenderer({
   children,
   className,
   highlightCode = true,
+  streaming = false,
   onOpenFilePreview,
 }: MarkdownTextRendererProps) {
   const components = useMemo<Components>(
@@ -447,6 +521,7 @@ export default function MarkdownTextRenderer({
               code={code}
               className="my-3"
               highlight={highlightCode}
+              showLineNumbers={code.includes("\n")}
             />
           );
         }
@@ -502,6 +577,7 @@ export default function MarkdownTextRenderer({
               code={fence.code}
               className="my-3"
               highlight={highlightCode}
+              showLineNumbers={fence.code.includes("\n")}
             />
           );
         }
@@ -545,17 +621,46 @@ export default function MarkdownTextRenderer({
           </a>
         );
       },
-      table({ children, ...props }) {
-        // Wrap wide markdown tables in a horizontal-scroll container (the
-        // pattern used by DeepSeek/others) so a 6+ column table scrolls inside
-        // the conversation column instead of forcing the page wider than 100vw.
-        // min-w-max keeps natural column widths; w-full stretches narrow tables.
+      table({ children: tableChildren, ...props }) {
         return (
-          <div className="w-full overflow-x-auto">
-            <table className="w-full min-w-max" {...props}>
-              {children}
+          <div
+            data-testid="markdown-data-table"
+            data-table-kind="data"
+            className={cn(
+              "not-prose my-3 w-full max-w-full overflow-x-auto rounded-lg",
+              "border border-border/65 bg-muted/20",
+            )}
+          >
+            <table
+              className={cn(
+                "w-full min-w-max border-collapse text-[13px] leading-5",
+                "[&_thead]:bg-muted/45 [&_thead]:text-muted-foreground",
+                "[&_th]:border-b [&_th]:border-border/65 [&_th]:px-3 [&_th]:py-2",
+                "[&_th]:text-left [&_th]:font-medium",
+                "[&_td]:border-b [&_td]:border-border/55 [&_td]:px-3 [&_td]:py-2",
+                "[&_th:not(:last-child)]:border-r [&_th:not(:last-child)]:border-border/45",
+                "[&_td:not(:last-child)]:border-r [&_td:not(:last-child)]:border-border/45",
+                "[&_tbody_tr:last-child_td]:border-b-0",
+              )}
+              {...props}
+            >
+              {tableChildren}
             </table>
           </div>
+        );
+      },
+      ul({ children: markdownChildren, className: listClassName, ...props }) {
+        if (listClassName?.includes("contains-task-list")) {
+          return (
+            <MarkdownTaskList className={listClassName}>
+              {markdownChildren}
+            </MarkdownTaskList>
+          );
+        }
+        return (
+          <ul className={listClassName} {...props}>
+            {markdownChildren}
+          </ul>
         );
       },
       li({ children: markdownChildren, className: itemClassName }) {
@@ -567,8 +672,14 @@ export default function MarkdownTextRenderer({
             </li>
           );
         }
+        const taskItem = itemClassName?.includes("task-list-item");
         return (
-          <li className={itemClassName}>
+          <li
+            className={cn(
+              itemClassName,
+              taskItem && "flex min-w-0 items-start gap-2 text-[13px] leading-5 [&>p]:m-0",
+            )}
+          >
             {markdownChildren}
           </li>
         );
@@ -579,10 +690,11 @@ export default function MarkdownTextRenderer({
           <span
             aria-hidden
             data-testid="markdown-task-checkbox"
+            data-task-checked={checked ? "true" : "false"}
             className={cn(
-              "mr-2 inline-grid h-4 w-4 translate-y-[2px] place-items-center rounded-[4px]",
-              "border border-border/70 bg-muted/55 text-background",
-              checked && "border-foreground/55 bg-foreground/65",
+              "mt-0.5 inline-grid h-4 w-4 shrink-0 place-items-center rounded-full",
+              "border border-dashed border-muted-foreground/55 bg-background text-background",
+              checked && "border-solid border-emerald-500 bg-emerald-500 text-white",
             )}
           >
             {checked ? <Check className="h-3 w-3 stroke-[3]" /> : null}
@@ -643,6 +755,7 @@ export default function MarkdownTextRenderer({
     <div
       className={cn(
         "markdown-content prose max-w-none dark:prose-invert",
+        streaming && "markdown-content-streaming",
         "prose-headings:mt-4 prose-headings:mb-2 prose-headings:font-semibold prose-headings:tracking-tight",
         "prose-h1:text-lg prose-h2:text-base prose-h3:text-sm prose-h4:text-[13px]",
         "prose-p:my-2",
