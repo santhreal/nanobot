@@ -249,7 +249,10 @@ function safeError(items: GenericToolRunItem[]): string | undefined {
   if (!error) return undefined;
   return truncateMiddle(
     error
-      .replace(/(authorization\s*[:=]\s*bearer\s+)[^\s,;]+/gi, "$1<redacted>")
+      .replace(
+        /(["']?authorization["']?\s*[:=]\s*["']?)[^"'\r\n,;}]+/gi,
+        "$1<redacted>",
+      )
       .replace(
         /(["']?(?:api[_-]?key|token|secret|password)["']?\s*[:=]\s*)["']?[^"'\s,;}]+["']?/gi,
         "$1<redacted>",

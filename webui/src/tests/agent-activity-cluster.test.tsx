@@ -1157,7 +1157,11 @@ describe("AgentActivityCluster", () => {
             call_id: "call-grep-error",
             name: "grep",
             arguments: args,
-            error: "Permission denied; token=super-secret",
+            error: JSON.stringify({
+              message: "Permission denied",
+              headers: { Authorization: "Bearer sk-live-secret" },
+              token: "super-secret",
+            }),
           }],
           createdAt: 1,
         }]}
@@ -1169,8 +1173,10 @@ describe("AgentActivityCluster", () => {
     expect(screen.getByText("Could not search files")).toBeInTheDocument();
     expect(screen.getByText(/Permission denied/)).not.toBeVisible();
     fireEvent.click(screen.getByLabelText("Technical details for Could not search files"));
-    expect(screen.getByText("Permission denied; token=<redacted>")).toBeVisible();
+    expect(screen.getByText(/Permission denied/)).toBeVisible();
     expect(screen.queryByText(/super-secret/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/sk-live-secret/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Authorization.*<redacted>/)).toBeVisible();
   });
 
   it("summarizes long shell traces instead of dumping scripts", () => {
