@@ -40,6 +40,13 @@ def _now_ms() -> int:
     return int(time.time() * 1000)
 
 
+def _pick(data: dict[str, Any], camel: str, snake: str, default: Any = None) -> Any:
+    """Read camelCase store keys with snake_case fallback (asdict / hand-edits)."""
+    if camel in data:
+        return data[camel]
+    return data.get(snake, default)
+
+
 def _compute_next_run(schedule: CronSchedule, now_ms: int) -> int | None:
     """Compute next run time in ms."""
     if schedule.kind == "at":
@@ -228,8 +235,8 @@ class CronService:
                         enabled=j.get("enabled", True),
                         schedule=CronSchedule(
                             kind=j["schedule"]["kind"],
-                            at_ms=j["schedule"].get("atMs"),
-                            every_ms=j["schedule"].get("everyMs"),
+                            at_ms=_pick(j["schedule"], "atMs", "at_ms"),
+                            every_ms=_pick(j["schedule"], "everyMs", "every_ms"),
                             expr=j["schedule"].get("expr"),
                             tz=j["schedule"].get("tz"),
                         ),
