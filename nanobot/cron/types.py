@@ -8,6 +8,13 @@ from typing import Any, Literal
 from nanobot.utils.dict_keys import get_camel_snake
 
 
+def _optional_store_int(value: Any) -> int | None:
+    """Coerce JSON numerics (including string forms) to int; keep None/blank."""
+    if value is None or value == "":
+        return None
+    return int(value)
+
+
 @dataclass
 class CronSchedule:
     """Schedule definition for a cron job."""
@@ -25,8 +32,8 @@ class CronSchedule:
     def from_store_dict(cls, data: dict[str, Any]) -> CronSchedule:
         return cls(
             kind=data["kind"],
-            at_ms=get_camel_snake(data, "atMs", "at_ms"),
-            every_ms=get_camel_snake(data, "everyMs", "every_ms"),
+            at_ms=_optional_store_int(get_camel_snake(data, "atMs", "at_ms")),
+            every_ms=_optional_store_int(get_camel_snake(data, "everyMs", "every_ms")),
             expr=data.get("expr"),
             tz=data.get("tz"),
         )
@@ -98,8 +105,12 @@ class CronJobState:
     def from_store_dict(cls, data: dict[str, Any]) -> CronJobState:
         history = get_camel_snake(data, "runHistory", "run_history", []) or []
         return cls(
-            next_run_at_ms=get_camel_snake(data, "nextRunAtMs", "next_run_at_ms"),
-            last_run_at_ms=get_camel_snake(data, "lastRunAtMs", "last_run_at_ms"),
+            next_run_at_ms=_optional_store_int(
+                get_camel_snake(data, "nextRunAtMs", "next_run_at_ms")
+            ),
+            last_run_at_ms=_optional_store_int(
+                get_camel_snake(data, "lastRunAtMs", "last_run_at_ms")
+            ),
             last_status=get_camel_snake(data, "lastStatus", "last_status"),
             last_error=get_camel_snake(data, "lastError", "last_error"),
             run_history=[
