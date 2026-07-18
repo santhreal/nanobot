@@ -474,6 +474,41 @@ async def test_run_history_persisted_to_disk(tmp_path) -> None:
     assert loaded.state.run_history[0].status == "ok"
 
 
+def test_load_jobs_accepts_snake_case_run_history(tmp_path) -> None:
+    store_path = tmp_path / "cron" / "jobs.json"
+    store_path.parent.mkdir(parents=True)
+    store_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "jobs": [
+                    {
+                        "id": "j1",
+                        "name": "t",
+                        "enabled": True,
+                        "schedule": {"kind": "every", "everyMs": 60_000},
+                        "payload": {"kind": "agent_turn", "message": "hi"},
+                        "state": {
+                            "runHistory": [
+                                {"run_at_ms": 1000, "status": "ok", "duration_ms": 12},
+                            ],
+                        },
+                        "createdAtMs": 0,
+                        "updatedAtMs": 0,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    jobs, _version = CronService(store_path)._load_jobs()
+    assert jobs is not None
+    assert len(jobs) == 1
+    assert jobs[0].state.run_history[0].run_at_ms == 1000
+    assert jobs[0].state.run_history[0].duration_ms == 12
+
+
 @pytest.mark.asyncio
 async def test_run_job_disabled_does_not_flip_running_state(tmp_path) -> None:
     store_path = tmp_path / "cron" / "jobs.json"
