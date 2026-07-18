@@ -31,6 +31,22 @@ def test_load_config_invalid_schema_fails_fast(tmp_path) -> None:
         load_config(config_path)
 
 
+def test_load_config_non_dict_tools_fails_as_validation_error(tmp_path) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({"tools": []}), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Failed to load config"):
+        load_config(config_path)
+
+
+def test_load_config_null_tools_exec_fails_as_validation_error(tmp_path) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({"tools": {"exec": None}}), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Failed to load config"):
+        load_config(config_path)
+
+
 @pytest.mark.parametrize("host", ["0.0.0.0", "::"])
 def test_api_config_requires_key_for_wildcard_hosts(host: str) -> None:
     with pytest.raises(ValueError, match="api_key is not set"):
