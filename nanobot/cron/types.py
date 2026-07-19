@@ -127,8 +127,11 @@ class CronJob:
     @classmethod
     def from_dict(cls, kwargs: dict):
         state_kwargs = dict(kwargs.get("state", {}))
+        # Mirror from_store_dict so partial/camelCase history rows load.
         state_kwargs["run_history"] = [
-            record if isinstance(record, CronRunRecord) else CronRunRecord(**record)
+            record
+            if isinstance(record, CronRunRecord)
+            else CronRunRecord.from_store_dict(record)
             for record in state_kwargs.get("run_history", [])
         ]
         kwargs["schedule"] = CronSchedule(**kwargs.get("schedule", {"kind": "every"}))
