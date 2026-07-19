@@ -65,6 +65,44 @@ def test_load_jobs_accepts_snake_case_schedule_and_run_history(tmp_path) -> None
     assert jobs[0].state.run_history[0].duration_ms == 12
 
 
+def test_load_jobs_coerces_string_schedule_and_state_ms(tmp_path) -> None:
+    store_path = tmp_path / "cron" / "jobs.json"
+    store_path.parent.mkdir(parents=True)
+    store_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "jobs": [
+                    {
+                        "id": "j1",
+                        "name": "t",
+                        "enabled": True,
+                        "schedule": {"kind": "every", "everyMs": "60000"},
+                        "payload": {
+                            "kind": "agent_turn",
+                            "message": "hi",
+                            "sessionKey": "websocket:chat-1",
+                        },
+                        "state": {
+                            "nextRunAtMs": "100",
+                            "lastRunAtMs": "50",
+                        },
+                        "createdAtMs": 0,
+                        "updatedAtMs": 0,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    jobs, _version = CronService(store_path)._load_jobs()
+    assert jobs is not None
+    assert jobs[0].schedule.every_ms == 60_000
+    assert jobs[0].state.next_run_at_ms == 100
+    assert jobs[0].state.last_run_at_ms == 50
+
+
 def test_add_job_rejects_unknown_timezone(tmp_path) -> None:
     service = CronService(tmp_path / "cron" / "jobs.json")
 
@@ -584,12 +622,14 @@ async def test_running_service_honors_external_disable(tmp_path) -> None:
 
 def test_remove_job_refuses_system_jobs(tmp_path) -> None:
     service = CronService(tmp_path / "cron" / "jobs.json")
-    service.register_system_job(CronJob(
-        id="dream",
-        name="dream",
-        schedule=CronSchedule(kind="cron", expr="0 */2 * * *", tz="UTC"),
-        payload=CronPayload(kind="system_event"),
-    ))
+    service.register_system_job(
+        CronJob(
+            id="dream",
+            name="dream",
+            schedule=CronSchedule(kind="cron", expr="0 */2 * * *", tz="UTC"),
+            payload=CronPayload(kind="system_event"),
+        )
+    )
 
     result = service.remove_job("dream")
 
@@ -601,6 +641,7 @@ def test_remove_job_refuses_system_jobs(tmp_path) -> None:
 async def test_start_server_not_jobs(tmp_path):
     store_path = tmp_path / "cron" / "jobs.json"
     called = []
+
     async def on_job(job):
         called.append(job.name)
 
@@ -881,12 +922,14 @@ def test_update_job_not_found(tmp_path) -> None:
 
 def test_update_job_rejects_system_job(tmp_path) -> None:
     service = CronService(tmp_path / "cron" / "jobs.json")
-    service.register_system_job(CronJob(
-        id="dream",
-        name="dream",
-        schedule=CronSchedule(kind="cron", expr="0 */2 * * *", tz="UTC"),
-        payload=CronPayload(kind="system_event"),
-    ))
+    service.register_system_job(
+        CronJob(
+            id="dream",
+            name="dream",
+            schedule=CronSchedule(kind="cron", expr="0 */2 * * *", tz="UTC"),
+            payload=CronPayload(kind="system_event"),
+        )
+    )
     result = service.update_job("dream", name="hacked")
     assert result == "protected"
     assert service.get_job("dream").name == "dream"
@@ -910,6 +953,7 @@ def test_update_job_validates_schedule(tmp_path) -> None:
 @pytest.mark.asyncio
 async def test_update_job_preserves_run_history(tmp_path) -> None:
     import asyncio
+
     store_path = tmp_path / "cron" / "jobs.json"
     service = CronService(store_path, on_job=lambda _: asyncio.sleep(0))
     job = service.add_job(

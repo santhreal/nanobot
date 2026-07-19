@@ -8,9 +8,17 @@ from typing import Any, Literal
 from nanobot.utils.dict_keys import get_camel_snake
 
 
+def _optional_store_int(value: Any) -> int | None:
+    """Coerce JSON numerics (including string forms) to int; keep None/blank."""
+    if value is None or value == "":
+        return None
+    return int(value)
+
+
 @dataclass
 class CronSchedule:
     """Schedule definition for a cron job."""
+
     kind: Literal["at", "every", "cron"]
     # For "at": timestamp in ms
     at_ms: int | None = None
@@ -25,8 +33,8 @@ class CronSchedule:
     def from_store_dict(cls, data: dict[str, Any]) -> CronSchedule:
         return cls(
             kind=data["kind"],
-            at_ms=get_camel_snake(data, "atMs", "at_ms"),
-            every_ms=get_camel_snake(data, "everyMs", "every_ms"),
+            at_ms=_optional_store_int(get_camel_snake(data, "atMs", "at_ms")),
+            every_ms=_optional_store_int(get_camel_snake(data, "everyMs", "every_ms")),
             expr=data.get("expr"),
             tz=data.get("tz"),
         )
@@ -35,6 +43,7 @@ class CronSchedule:
 @dataclass
 class CronPayload:
     """What to do when the job runs."""
+
     kind: Literal["system_event", "agent_turn"] = "agent_turn"
     message: str = ""
     # Legacy delivery fields used by pre-session-bound cron jobs.
@@ -55,9 +64,7 @@ class CronPayload:
             deliver=data.get("deliver", False),
             channel=data.get("channel"),
             to=data.get("to"),
-            channel_meta=dict(
-                get_camel_snake(data, "channelMeta", "channel_meta", {}) or {}
-            ),
+            channel_meta=dict(get_camel_snake(data, "channelMeta", "channel_meta", {}) or {}),
             session_key=get_camel_snake(data, "sessionKey", "session_key"),
             origin_channel=get_camel_snake(data, "originChannel", "origin_channel"),
             origin_chat_id=get_camel_snake(data, "originChatId", "origin_chat_id"),
@@ -70,6 +77,7 @@ class CronPayload:
 @dataclass
 class CronRunRecord:
     """A single execution record for a cron job."""
+
     run_at_ms: int
     status: Literal["ok", "error", "skipped"]
     duration_ms: int = 0
@@ -88,6 +96,7 @@ class CronRunRecord:
 @dataclass
 class CronJobState:
     """Runtime state of a job."""
+
     next_run_at_ms: int | None = None
     last_run_at_ms: int | None = None
     last_status: Literal["ok", "error", "skipped"] | None = None
@@ -98,8 +107,12 @@ class CronJobState:
     def from_store_dict(cls, data: dict[str, Any]) -> CronJobState:
         history = get_camel_snake(data, "runHistory", "run_history", []) or []
         return cls(
-            next_run_at_ms=get_camel_snake(data, "nextRunAtMs", "next_run_at_ms"),
-            last_run_at_ms=get_camel_snake(data, "lastRunAtMs", "last_run_at_ms"),
+            next_run_at_ms=_optional_store_int(
+                get_camel_snake(data, "nextRunAtMs", "next_run_at_ms")
+            ),
+            last_run_at_ms=_optional_store_int(
+                get_camel_snake(data, "lastRunAtMs", "last_run_at_ms")
+            ),
             last_status=get_camel_snake(data, "lastStatus", "last_status"),
             last_error=get_camel_snake(data, "lastError", "last_error"),
             run_history=[
@@ -114,6 +127,7 @@ class CronJobState:
 @dataclass
 class CronJob:
     """A scheduled job."""
+
     id: str
     name: str
     enabled: bool = True
@@ -157,5 +171,6 @@ class CronJob:
 @dataclass
 class CronStore:
     """Persistent store for cron jobs."""
+
     version: int = 1
     jobs: list[CronJob] = field(default_factory=list)
