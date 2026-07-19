@@ -11,6 +11,7 @@ from loguru import logger
 from pydantic import BaseModel
 
 from nanobot.config.schema import Config, _resolve_tool_config_refs
+from nanobot.utils.helpers import _write_text_atomic
 
 # Global variable to store current config path (for multi-instance support)
 _current_config_path: Path | None = None
@@ -85,8 +86,8 @@ def save_config(config: Config, config_path: Path | None = None) -> None:
             "proxy": config.providers.openai_codex.proxy,
         }
 
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+    # Temp + replace so a crash mid-write cannot leave a truncated config.json.
+    _write_text_atomic(path, json.dumps(data, indent=2, ensure_ascii=False))
 
 
 def merge_missing_defaults(existing: Any, defaults: Any) -> Any:
@@ -163,9 +164,7 @@ def _env_replace(match: re.Match[str]) -> str:
     name = match.group(1)
     value = os.environ.get(name)
     if value is None:
-        raise ValueError(
-            f"Environment variable '{name}' referenced in config is not set"
-        )
+        raise ValueError(f"Environment variable '{name}' referenced in config is not set")
     return value
 
 
@@ -174,9 +173,7 @@ def _migrate_config(data: dict) -> dict:
     agents = data.get("agents", {})
     defaults = agents.get("defaults", {}) if isinstance(agents, dict) else {}
     if isinstance(defaults, dict):
-        had_legacy_max_messages = (
-            "maxMessages" in defaults or "max_messages" in defaults
-        )
+        had_legacy_max_messages = "maxMessages" in defaults or "max_messages" in defaults
         defaults.pop("maxMessages", None)
         defaults.pop("max_messages", None)
         if had_legacy_max_messages:
