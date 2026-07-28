@@ -1963,3 +1963,14 @@ def test_save_turn_drops_duplicate_tool_result_ids() -> None:
 
     assert [m["role"] for m in session.messages] == ["assistant", "tool"]
     assert session.messages[1]["content"] == "first"
+def test_sanitize_persisted_blocks_handles_null_image_url() -> None:
+    loop = _mk_loop()
+    blocks = [
+        {"type": "text", "text": "hello"},
+        {"type": "image_url", "image_url": None},
+    ]
+    res = loop._sanitize_persisted_blocks(blocks)
+    assert res == [
+        {"type": "text", "text": "hello"},
+        {"type": "image_url", "image_url": None},
+    ]

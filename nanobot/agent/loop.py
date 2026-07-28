@@ -1766,7 +1766,7 @@ class AgentLoop:
                 filtered.append(block)
                 continue
 
-            if block.get("type") == "image_url" and block.get("image_url", {}).get(
+            if block.get("type") == "image_url" and (block.get("image_url") or {}).get(
                 "url", ""
             ).startswith("data:image/"):
                 path = (block.get("_meta") or {}).get("path", "")

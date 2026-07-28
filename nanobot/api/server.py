@@ -162,7 +162,7 @@ def _parse_json_content(body: dict) -> tuple[str, list[str]]:
             if part.get("type") == "text":
                 text_parts.append(part.get("text", ""))
             elif part.get("type") == "image_url":
-                url = part.get("image_url", {}).get("url", "")
+                url = (part.get("image_url") or {}).get("url", "")
                 if url.startswith("data:"):
                     saved = _save_base64_data_url(url, media_dir)
                     if saved:

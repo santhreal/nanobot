@@ -419,3 +419,19 @@ async def test_docx_upload_passes_media_path(aiohttp_client, tmp_path) -> None:
         assert "report.docx" in media[0]
     finally:
         os.chdir(original_cwd)
+def test_parse_json_content_handles_null_image_url():
+    """_parse_json_content should handle image_url block with null image_url field."""
+    body = {
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "hello"},
+                    {"type": "image_url", "image_url": None},
+                ],
+            }
+        ]
+    }
+    text, media_paths = _parse_json_content(body)
+    assert text == "hello"
+    assert media_paths == []
