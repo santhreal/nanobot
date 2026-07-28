@@ -525,7 +525,7 @@ class WebSearchTool(Tool):
                 r.raise_for_status()
             items = [
                 {"title": x.get("title", ""), "url": x.get("url", ""), "content": x.get("description", "")}
-                for x in r.json().get("web", {}).get("results", [])
+                for x in (r.json().get("web") or {}).get("results") or []
             ]
             return _format_results(query, items, n)
         except httpx.HTTPStatusError as e:
@@ -661,7 +661,7 @@ class WebSearchTool(Tool):
                 r.raise_for_status()
             items = [
                 {"title": d.get("title", ""), "url": d.get("url", ""), "content": d.get("snippet", "")}
-                for d in r.json().get("data", {}).get("search", [])
+                for d in (r.json().get("data") or {}).get("search") or []
             ]
             return _format_results(query, items, n)
         except Exception as e:

@@ -821,3 +821,31 @@ async def test_olostep_package_missing_returns_install_hint(monkeypatch):
     result = await tool.execute(query="test query")
 
     assert result == "Error: olostep package not installed. Run: pip install olostep"
+@pytest.mark.asyncio
+async def test_brave_search_handles_null_web_field(monkeypatch):
+    """
+    Test that _search_brave handles response payloads where the 'web' field is null/None
+    without raising AttributeError.
+    """
+    async def mock_get(self, url, **kw):
+        return _response(json={"web": None})
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", mock_get)
+    tool = _tool(provider="brave", api_key="brave-key")
+    result = await tool.execute(query="test query")
+    assert result == "No results for: test query"
+
+
+@pytest.mark.asyncio
+async def test_kagi_search_handles_null_data_field(monkeypatch):
+    """
+    Test that _search_kagi handles response payloads where the 'data' field is null/None
+    without raising AttributeError.
+    """
+    async def mock_post(self, url, **kw):
+        return _response(json={"data": None})
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+    tool = _tool(provider="kagi", api_key="kagi-key")
+    result = await tool.execute(query="test query")
+    assert result == "No results for: test query"
