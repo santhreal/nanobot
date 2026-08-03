@@ -278,6 +278,23 @@ def _resolve_in_place(obj: Any) -> Any:
             if any(new is not old for new, old in zip(resolved, object_list))
             else cast(object, obj)
         )
+    if isinstance(obj, tuple):
+        object_tuple = cast(tuple[Any, ...], obj)
+        resolved_list = [_resolve_in_place(value) for value in object_tuple]
+        return (
+            tuple(resolved_list)
+            if any(new is not old for new, old in zip(resolved_list, object_tuple))
+            else obj
+        )
+    if isinstance(obj, (set, frozenset)):
+        cls = type(obj)
+        object_seq = list(obj)
+        resolved_seq = [_resolve_in_place(value) for value in object_seq]
+        return (
+            cls(resolved_seq)
+            if any(new is not old for new, old in zip(resolved_seq, object_seq))
+            else obj
+        )
     return obj
 
 
@@ -310,9 +327,9 @@ def _missing_env_issues(
             part = name
             issues.extend(_missing_env_issues(value, (*path, part)))
         return issues
-    if isinstance(obj, list):
+    if isinstance(obj, (list, tuple, set, frozenset)):
         issues = []
-        for index, value in enumerate(cast(list[Any], obj)):
+        for index, value in enumerate(obj):
             issues.extend(_missing_env_issues(value, (*path, index)))
         return issues
     return []
@@ -327,8 +344,12 @@ def _resolve_env_vars(obj: object) -> object:
             key: _resolve_env_vars(value)
             for key, value in cast(dict[str, object], obj).items()
         }
-    if isinstance(obj, list):
-        return [_resolve_env_vars(value) for value in cast(list[object], obj)]
+    if isinstance(obj, (list, tuple)):
+        cls = type(obj)
+        return cls(_resolve_env_vars(value) for value in obj)
+    if isinstance(obj, (set, frozenset)):
+        cls = type(obj)
+        return cls(_resolve_env_vars(value) for value in obj)
     return obj
 
 

@@ -90,6 +90,28 @@ class TestResolveConfig:
         assert "providers.openrouter.apiKey" in str(error)
         assert name in str(error)
 
+    def test_resolves_env_vars_in_tuple_and_set_containers(self, monkeypatch):
+        monkeypatch.setenv("TEST_BIND_PATH", "/tmp/bind")
+        config = Config()
+        config.tools.exec.sandbox_ro_binds = ("${TEST_BIND_PATH}",)
+        config.tools.ssrf_whitelist = {"${TEST_BIND_PATH}"}
+
+        resolved = resolve_config_env_vars(config)
+        assert resolved.tools.exec.sandbox_ro_binds == ("/tmp/bind",)
+        assert resolved.tools.ssrf_whitelist == {"/tmp/bind"}
+
+    def test_missing_env_var_in_tuple_or_set_raises_config_load_error(self, monkeypatch):
+        name = "NANOBOT_TEST_MISSING_TUPLE_VAR"
+        monkeypatch.delenv(name, raising=False)
+        config = Config()
+        config.tools.exec.sandbox_ro_binds = (f"${{{name}}}",)
+
+        with pytest.raises(ConfigLoadError) as exc_info:
+            resolve_config_env_vars(config)
+
+        error = exc_info.value
+        assert error.kind == "missing_env"
+        assert name in str(error)
     def test_save_preserves_templates(self, tmp_path, monkeypatch):
         monkeypatch.setenv("MY_TOKEN", "real-token")
         config_path = tmp_path / "config.json"
