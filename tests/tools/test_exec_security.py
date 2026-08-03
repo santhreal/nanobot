@@ -496,3 +496,20 @@ def test_exec_blocks_outside_paths_from_subdirectory(tmp_path):
     )
     assert result is not None
     assert "path outside working dir" in result
+def test_exec_blocks_outside_paths_with_redirection_and_delimiters(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    outside = tmp_path / "secrets"
+    outside.mkdir()
+
+    tool = ExecTool(working_dir=str(workspace), restrict_to_workspace=True)
+
+    for cmd in (
+        f"cat<{outside / 'key.pem'}",
+        f"cat <{outside / 'key.pem'}",
+        f"({outside / 'key.pem'})",
+        f"cat {{{outside / 'key.pem'}}}",
+    ):
+        result = tool._guard_command(cmd, str(workspace), workspace_root=str(workspace))
+        assert result is not None, f"Expected {cmd} to be blocked"
+        assert "path outside working dir" in result
