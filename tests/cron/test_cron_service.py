@@ -5,7 +5,7 @@ import time
 import pytest
 
 from nanobot.cron.service import CronJobSkippedError, CronService
-from nanobot.cron.types import CronJob, CronPayload, CronSchedule
+from nanobot.cron.types import CronJob, CronJobState, CronPayload, CronRunRecord, CronSchedule
 
 
 async def _wait_until(predicate, *, timeout: float = 1.0, interval: float = 0.01) -> None:
@@ -75,6 +75,40 @@ def test_cron_job_from_dict_rejects_malformed_run_history() -> None:
             }
         )
 
+
+def test_cron_job_from_dict_handles_dataclasses_and_camelcase_without_mutation() -> None:
+    raw_schedule = CronSchedule(kind="every", every_ms=60_000)
+    raw_payload = CronPayload(kind="agent_turn", message="hello")
+    raw_state = CronJobState(next_run_at_ms=100)
+    input_dict = {
+        "id": "j1",
+        "name": "test",
+        "schedule": raw_schedule,
+        "payload": raw_payload,
+        "state": raw_state,
+    }
+    job = CronJob.from_dict(input_dict)
+    assert job.id == "j1"
+    assert job.schedule.every_ms == 60_000
+    assert job.payload.message == "hello"
+    assert job.state.next_run_at_ms == 100
+    assert input_dict["schedule"] is raw_schedule
+
+    camel_dict = {
+        "id": "j2",
+        "name": "test2",
+        "schedule": {"kind": "every", "everyMs": 30_000},
+        "createdAtMs": 500,
+        "updatedAtMs": 1000,
+        "deleteAfterRun": True,
+    }
+    job2 = CronJob.from_dict(camel_dict)
+    assert job2.id == "j2"
+    assert job2.schedule.every_ms == 30_000
+    assert job2.created_at_ms == 500
+    assert job2.updated_at_ms == 1000
+    assert job2.delete_after_run is True
+    assert isinstance(camel_dict["schedule"], dict)
 
 def test_load_jobs_coerces_string_schedule_and_state_ms(tmp_path) -> None:
     store_path = tmp_path / "cron" / "jobs.json"

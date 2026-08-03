@@ -148,20 +148,58 @@ class CronJob:
     delete_after_run: bool = False
 
     @classmethod
-    def from_dict(cls, kwargs: dict[str, Any]) -> CronJob:
-        state_kwargs = dict(cast(dict[str, Any], kwargs.get("state", {})))
-        state_kwargs["run_history"] = [
-            record
-            if isinstance(record, CronRunRecord)
-            else CronRunRecord(**cast(dict[str, Any], record))
-            for record in cast(list[object], state_kwargs.get("run_history", []))
-        ]
-        kwargs["schedule"] = CronSchedule(
-            **cast(dict[str, Any], kwargs.get("schedule", {"kind": "every"}))
+    def from_dict(cls, data: dict[str, Any]) -> CronJob:
+        data = dict(data)
+
+        raw_schedule = data.get("schedule", {"kind": "every"})
+        if isinstance(raw_schedule, CronSchedule):
+            schedule = raw_schedule
+        elif isinstance(raw_schedule, dict):
+            schedule = CronSchedule.from_store_dict(raw_schedule)
+        else:
+            schedule = CronSchedule(kind="every")
+
+        raw_payload = data.get("payload", {})
+        if isinstance(raw_payload, CronPayload):
+            payload = raw_payload
+        elif isinstance(raw_payload, dict):
+            payload = CronPayload.from_store_dict(raw_payload)
+        else:
+            payload = CronPayload()
+
+        raw_state = data.get("state", {})
+        if isinstance(raw_state, CronJobState):
+            state = raw_state
+        elif isinstance(raw_state, dict):
+            state_dict = dict(raw_state)
+            raw_hist = get_camel_snake(state_dict, "runHistory", "run_history", None)
+            if raw_hist is not None:
+                history_list: list[CronRunRecord] = []
+                for rec in cast(list[object], raw_hist):
+                    if isinstance(rec, CronRunRecord):
+                        history_list.append(rec)
+                    elif isinstance(rec, dict):
+                        history_list.append(CronRunRecord.from_store_dict(cast(dict[str, Any], rec)))
+                    else:
+                        raise TypeError(f"Invalid run_history item: {rec!r}")
+                state_dict["run_history"] = history_list
+            state = CronJobState.from_store_dict(state_dict)
+        else:
+            state = CronJobState()
+
+        return cls(
+            id=data["id"],
+            name=data["name"],
+            enabled=data.get("enabled", True),
+            schedule=schedule,
+            payload=payload,
+            state=state,
+            created_at_ms=_store_int(get_camel_snake(data, "createdAtMs", "created_at_ms", 0)),
+            updated_at_ms=_store_int(get_camel_snake(data, "updatedAtMs", "updated_at_ms", 0)),
+            delete_after_run=bool(
+                get_camel_snake(data, "deleteAfterRun", "delete_after_run", False)
+            ),
         )
-        kwargs["payload"] = CronPayload(**cast(dict[str, Any], kwargs.get("payload", {})))
-        kwargs["state"] = CronJobState(**state_kwargs)
-        return cls(**cast(Any, kwargs))
 
     @classmethod
     def from_store_dict(cls, data: dict[str, Any]) -> CronJob:
