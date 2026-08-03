@@ -66,6 +66,15 @@ class TestMergeMessageContent:
     def test_list_items_not_dicts_wrapped(self):
         result = ContextBuilder._merge_message_content(["raw_item"], None)
         assert result == [{"type": "text", "text": "raw_item"}]
+    def test_list_plus_empty_str_no_empty_text_block(self):
+        left = [{"type": "image_url", "image_url": {"url": "data:image/png;base64,123"}}]
+        result = ContextBuilder._merge_message_content(left, "")
+        assert result == left
+
+    def test_empty_str_plus_list_no_empty_text_block(self):
+        right = [{"type": "image_url", "image_url": {"url": "data:image/png;base64,123"}}]
+        result = ContextBuilder._merge_message_content("", right)
+        assert result == right
 
 
 # ---------------------------------------------------------------------------
@@ -481,3 +490,11 @@ class TestBuildMessages:
         user_msg = messages[-1]["content"]
         assert isinstance(user_msg, list)
         assert any(b.get("type") == "image_url" for b in user_msg)
+    def test_build_user_content_empty_text_with_media_no_empty_text_block(self, tmp_path):
+        png = tmp_path / "img.png"
+        png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 16)
+        builder = _builder(tmp_path)
+        content = builder.build_user_content("", [str(png)])
+        assert isinstance(content, list)
+        assert len(content) == 1
+        assert content[0]["type"] == "image_url"

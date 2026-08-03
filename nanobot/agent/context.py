@@ -160,7 +160,7 @@ class ContextBuilder:
                     else {"type": "text", "text": str(item)}
                     for item in cast(list[Any], value)
                 ]
-            if value is None:
+            if not value and value != 0:
                 return []
             return [{"type": "text", "text": str(value)}]
 
@@ -310,4 +310,4 @@ class ContextBuilder:
 
         if not image_blocks:
             return text
-        return image_blocks + [{"type": "text", "text": text}]
+        return image_blocks + [{"type": "text", "text": text}] if text else image_blocks
